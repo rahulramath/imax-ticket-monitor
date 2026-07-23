@@ -377,7 +377,7 @@ export function Dashboard() {
         seat by seat across three theaters — Cinemark Dallas and AMC Lincoln Square in 70mm
         film, and Austin&apos;s Bullock Museum on the only 1.43         dual-laser screen in Texas.{" "}
         {IS_STATIC
-          ? "Availability refreshes automatically every hour, and each showtime links straight to its purchase page."
+          ? "Availability refreshes automatically every 30\u201360 minutes, and each showtime links straight to its purchase page."
           : "Everything checks automatically every few minutes, and each showtime links straight to its purchase page."}{" "}
         Tracking is scoped to what I&apos;m personally chasing right now —{" "}
         {REQUEST_EMAIL ? (

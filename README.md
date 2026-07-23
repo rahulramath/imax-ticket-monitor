@@ -33,9 +33,11 @@ Then open [http://localhost:3000](http://localhost:3000).
 ### GitHub Pages (easiest — no server, free)
 
 This repo ships with a GitHub Actions workflow (`.github/workflows/deploy.yml`) that
-scrapes all theaters **every hour** on GitHub's runners, builds a fully static
-version of the site, and publishes it to GitHub Pages. Your computer stays off;
-there is no server to maintain.
+scrapes all theaters on GitHub's runners, builds a fully static version of the
+site, and publishes it to GitHub Pages. Your computer stays off; there is no
+server to maintain. The schedule fires every 30 minutes, but GitHub cron is
+best-effort (runs are routinely delayed 15–60 minutes or occasionally skipped),
+so expect an effective refresh of every 30–60 minutes.
 
 One-time setup after pushing to GitHub:
 
@@ -47,9 +49,9 @@ One-time setup after pushing to GitHub:
 
 The static build differs from the live server in a few honest ways:
 
-- Availability is as fresh as the last hourly run (the "Updated X ago" stamp is
-  accurate). There's no "Check now" button and no browser notifications, since
-  both need a live server.
+- Availability is as fresh as the last scheduled run (the "Updated X ago" stamp
+  is accurate). There's no "Check now" button and no browser notifications,
+  since both need a live server.
 - "NEW" showtime flagging needs scan-to-scan memory, which fresh CI runners
   don't have, so static deploys don't badge new showtimes.
 - GitHub's datacenter IPs get less friendly treatment from Cloudflare than a
