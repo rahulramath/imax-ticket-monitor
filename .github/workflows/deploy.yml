@@ -1,0 +1,70 @@
+name: Scrape & deploy to GitHub Pages
+
+on:
+  schedule:
+    # Refresh availability every hour (GitHub cron is best-effort, may drift)
+    - cron: "7 * * * *"
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Never run two deploys at once; a newer run supersedes an in-flight one
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  scrape-and-deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Scrape all theaters
+        # Writes public/data/snapshot.json. Fails (skipping deploy, keeping
+        # the previous data live) only if every theater failed.
+        run: npm run scrape
+
+      - name: Build static site
+        env:
+          STATIC_EXPORT: "1"
+          # Email for the "request a theater or movie" link (set in repo
+          # Settings -> Secrets and variables -> Actions -> Variables)
+          NEXT_PUBLIC_REQUEST_EMAIL: ${{ vars.REQUEST_EMAIL }}
+        run: |
+          # Project pages live under /<repo-name>; user/org pages at the root
+          REPO_NAME="${GITHUB_REPOSITORY#*/}"
+          if [[ "$REPO_NAME" == *.github.io ]]; then
+            export BASE_PATH=""
+          else
+            export BASE_PATH="/$REPO_NAME"
+          fi
+          # The live-server API route can't be statically exported
+          rm -rf src/app/api
+          npm run build
+          touch out/.nojekyll
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: out
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
