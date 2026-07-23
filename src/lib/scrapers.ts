@@ -253,8 +253,9 @@ function parseCinemarkDates(html: string): string[] {
 
 /** Circuit breaker: after a 429, skip seat maps until this timestamp. */
 let seatMapCooldownUntil = 0;
-/** Rotation cursor for far-out seat map refreshes */
-let farRotation = 0;
+/** Rotation cursor for far-out seat map refreshes. Random start so fresh
+ *  processes (hourly CI runs) don't always re-fetch the same batch. */
+let farRotation = Math.floor(Math.random() * 997);
 /** Dates confirmed to have no tracked shows → recheck at most every 6h */
 const cinemarkEmptyDates = new Map<string, number>();
 const EMPTY_DATE_RECHECK_MS = 6 * 60 * 60_000;
@@ -346,9 +347,8 @@ async function scanCinemark(): Promise<TheaterResult> {
   // the carousel can span months (special events), so keep requests gentle.
   // Dates that had no tracked shows are re-checked at most every 6h.
   const now = Date.now();
-  for (const date of dates) {
-    const lastEmpty = cinemarkEmptyDates.get(date);
-    if (lastEmpty && now - lastEmpty < EMPTY_DATE_RECHECK_MS) continue;
+  // Returns null on success, or the error message for this date
+  const fetchDate = async (date: string): Promise<string | null> => {
     let found: Showtime[] | null = null;
     for (let attempt = 0; attempt < 2 && found === null; attempt++) {
       try {
@@ -359,9 +359,7 @@ async function scanCinemark(): Promise<TheaterResult> {
           await sleep(8_000);
           continue;
         }
-        errors.push(`${date}: ${e instanceof Error ? e.message : e}`);
-        failedDates.push(date);
-        break;
+        return e instanceof Error ? e.message : String(e);
       }
     }
     if (found !== null) {
@@ -369,7 +367,30 @@ async function scanCinemark(): Promise<TheaterResult> {
       else cinemarkEmptyDates.delete(date);
       for (const s of found) all.set(s.id, s);
     }
+    return null;
+  };
+
+  const firstPassFailed: string[] = [];
+  for (const date of dates) {
+    const lastEmpty = cinemarkEmptyDates.get(date);
+    if (lastEmpty && now - lastEmpty < EMPTY_DATE_RECHECK_MS) continue;
+    if ((await fetchDate(date)) !== null) firstPassFailed.push(date);
     await sleep(700);
+  }
+
+  // Second pass: rate-limit bursts are usually short, so after a cooldown
+  // retry the dates that failed. Whole missing days are the worst failure
+  // mode (especially in CI, where there's no previous scan to fall back on).
+  if (firstPassFailed.length > 0) {
+    await sleep(30_000);
+    for (const date of firstPassFailed) {
+      const err = await fetchDate(date);
+      if (err !== null) {
+        errors.push(`${date}: ${err}`);
+        failedDates.push(date);
+      }
+      await sleep(1_500);
+    }
   }
 
   const showtimes = [...all.values()].sort((a, b) =>

@@ -9,15 +9,35 @@
  */
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { applyCarryOver } from "../src/lib/carryover";
 import { scanAllTheaters } from "../src/lib/scrapers";
 import type { MonitorSnapshot } from "../src/lib/types";
 
 const OUT_PATH = join(process.cwd(), "public", "data", "snapshot.json");
 
+/** The currently deployed snapshot, used to fill gaps (failed dates, seat
+ *  counts not covered by this run's rotation). Set by the CI workflow. */
+async function fetchPreviousSnapshot(): Promise<MonitorSnapshot | null> {
+  const url = process.env.PREV_SNAPSHOT_URL;
+  if (!url) return null;
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(15_000), cache: "no-store" });
+    if (!res.ok) return null;
+    const prev = (await res.json()) as MonitorSnapshot;
+    // Ignore snapshots that are too old to be trustworthy (>24h)
+    if (Date.now() - prev.lastChecked > 24 * 60 * 60_000) return null;
+    console.log(`Loaded previous snapshot (${Math.round((Date.now() - prev.lastChecked) / 60000)}m old) for carry-over`);
+    return prev;
+  } catch {
+    return null;
+  }
+}
+
 async function main() {
   console.log("Scanning all theaters…");
   const started = Date.now();
-  const theaters = await scanAllTheaters();
+  const [theaters, prev] = await Promise.all([scanAllTheaters(), fetchPreviousSnapshot()]);
+  if (prev) applyCarryOver(prev.theaters, theaters);
 
   const snapshot: MonitorSnapshot = {
     theaters,
