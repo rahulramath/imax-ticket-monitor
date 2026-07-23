@@ -317,6 +317,39 @@ async function fetchCinemarkSeatCounts(show: Showtime, attempt = 0): Promise<voi
   else if (seatsLeft / seatsTotal < 0.15) show.status = "almost_full";
 }
 
+/**
+ * Fetch seat maps for Cinemark shows that still have no seat count, earliest
+ * date first, up to `budget` shows. The regular scan only covers the next few
+ * days plus a small rotating batch of far-out shows, which is fine for the
+ * long-running local server but leaves big gaps on one-shot CI runs — the CI
+ * scrape calls this after carrying over the previous deploy's counts so
+ * coverage converges within a run or two. Stops early if rate limited.
+ */
+export async function topUpCinemarkSeatCounts(
+  theaters: TheaterResult[],
+  budget = 60,
+): Promise<number> {
+  const cinemark = theaters.find((t) => t.chain === "cinemark");
+  if (!cinemark) return 0;
+  // status "unknown" means the seat map 404'd (sale not open) — skip those.
+  const missing = cinemark.showtimes
+    .filter((s) => s.seatsLeft === undefined && s.status !== "unknown")
+    .slice(0, budget);
+  let fetched = 0;
+  for (const s of missing) {
+    if (Date.now() < seatMapCooldownUntil) break;
+    try {
+      await fetchCinemarkSeatCounts(s);
+      if (s.seatsLeft !== undefined) fetched++;
+    } catch {
+      // rate limit sets the cooldown and the loop exits above; other
+      // failures were already retried/logged inside the fetch
+    }
+    await sleep(6_000);
+  }
+  return fetched;
+}
+
 async function scanCinemark(): Promise<TheaterResult> {
   const meta = THEATERS.cinemark;
   const all = new Map<string, Showtime>();
