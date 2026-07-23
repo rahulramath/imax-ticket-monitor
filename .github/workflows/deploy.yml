@@ -2,8 +2,11 @@ name: Scrape & deploy to GitHub Pages
 
 on:
   schedule:
-    # Refresh availability every hour (GitHub cron is best-effort, may drift)
-    - cron: "7 * * * *"
+    # Refresh availability every ~30 min. GitHub cron is best-effort — runs
+    # are often delayed 15-60 min or occasionally skipped, so scheduling at
+    # twice the desired rate (at off-peak minutes) lands at an effective
+    # refresh of roughly every 30-60 minutes.
+    - cron: "11,41 * * * *"
   push:
     branches: [main]
   workflow_dispatch:
