@@ -10,7 +10,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { applyCarryOver } from "../src/lib/carryover";
-import { scanAllTheaters } from "../src/lib/scrapers";
+import { scanAllTheaters, topUpCinemarkSeatCounts } from "../src/lib/scrapers";
 import type { MonitorSnapshot } from "../src/lib/types";
 
 const OUT_PATH = join(process.cwd(), "public", "data", "snapshot.json");
@@ -38,6 +38,12 @@ async function main() {
   const started = Date.now();
   const [theaters, prev] = await Promise.all([scanAllTheaters(), fetchPreviousSnapshot()]);
   if (prev) applyCarryOver(prev.theaters, theaters);
+
+  // One-shot CI runs miss most far-out Cinemark seat maps (the scan only
+  // rotates through a handful per pass) — top up whatever is still uncounted
+  // after carry-over so coverage converges across runs.
+  const toppedUp = await topUpCinemarkSeatCounts(theaters);
+  if (toppedUp > 0) console.log(`Topped up seat counts for ${toppedUp} Cinemark show(s)`);
 
   const snapshot: MonitorSnapshot = {
     theaters,
