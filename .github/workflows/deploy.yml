@@ -38,7 +38,10 @@ jobs:
 
       - name: Scrape all theaters
         # Writes public/data/snapshot.json. Fails (skipping deploy, keeping
-        # the previous data live) only if every theater failed.
+        # the previous data live) only if every theater failed. The currently
+        # deployed snapshot fills any gaps from rate-limited requests.
+        env:
+          PREV_SNAPSHOT_URL: https://rahulramath.github.io/imax-ticket-monitor/data/snapshot.json
         run: npm run scrape
 
       - name: Build static site

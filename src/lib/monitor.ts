@@ -1,5 +1,6 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { applyCarryOver } from "./carryover";
 import { scanAllTheaters } from "./scrapers";
 import type { MonitorSnapshot } from "./types";
 
@@ -58,45 +59,10 @@ function persist(): void {
 async function runScan(): Promise<MonitorSnapshot> {
   const theaters = await scanAllTheaters();
 
-  // Carry over previous data where this scan had gaps:
-  // 1. dates whose page fetch failed keep their previous showtimes
-  // 2. shows whose seat-count fetch failed keep their previous counts
+  // Carry over previous data where this scan had gaps (failed dates,
+  // missing seat counts).
   if (state.snapshot) {
-    const prevTheaters = new Map(state.snapshot.theaters.map((t) => [t.theaterId, t]));
-    for (const t of theaters) {
-      const prevT = prevTheaters.get(t.theaterId);
-      if (!prevT) continue;
-
-      const failed = new Set(t.failedDates ?? []);
-      if (failed.size > 0) {
-        const have = new Set(t.showtimes.map((s) => s.id));
-        // Same physical showtime can appear under a different id after a
-        // Fandango backfill, so also dedup by movie + local time.
-        const haveSlots = new Set(t.showtimes.map((s) => `${s.movieId}|${s.localDateTime}`));
-        const restored = prevT.showtimes.filter(
-          (s) =>
-            failed.has(s.localDate) &&
-            !have.has(s.id) &&
-            !haveSlots.has(`${s.movieId}|${s.localDateTime}`),
-        );
-        if (restored.length > 0) {
-          t.showtimes = [...t.showtimes, ...restored].sort((a, b) =>
-            a.localDateTime.localeCompare(b.localDateTime),
-          );
-        }
-      }
-
-      const prevById = new Map(prevT.showtimes.map((s) => [s.id, s]));
-      for (const s of t.showtimes) {
-        const old = prevById.get(s.id);
-        if (s.seatsLeft === undefined && old?.seatsLeft !== undefined) {
-          s.seatsLeft = old.seatsLeft;
-          s.seatsTotal = old.seatsTotal;
-          s.accessibleSeatsLeft = old.accessibleSeatsLeft;
-          s.status = old.status;
-        }
-      }
-    }
+    applyCarryOver(state.snapshot.theaters, theaters);
   }
 
   // Alert keys: new showtimes, sale-opened showtimes, and Bullock
