@@ -18,6 +18,21 @@ export function applyCarryOver(
     const prevT = prevById.get(t.theaterId);
     if (!prevT) continue;
 
+    // A completely failed scan (e.g. AMC 403-blocks GitHub's datacenter IPs
+    // from time to time) keeps the previous scan's data instead of blanking
+    // the theater. dataAsOf stays at the old timestamp so the UI can say how
+    // stale the data is, and dates already in the past are dropped so they
+    // don't pile up across a longer outage.
+    if (!t.ok && (prevT.showtimes.length > 0 || (prevT.engagements?.length ?? 0) > 0)) {
+      const cutoff = new Date(Date.now() - 36 * 3_600_000).toISOString().slice(0, 10);
+      t.showtimes = prevT.showtimes.filter((s) => s.localDate >= cutoff);
+      if (prevT.engagements) t.engagements = prevT.engagements;
+      t.dataAsOf = prevT.dataAsOf;
+      t.ok = true;
+      t.error = undefined;
+      continue;
+    }
+
     const failed = new Set(t.failedDates ?? []);
     if (failed.size > 0) {
       const have = new Set(t.showtimes.map((s) => s.id));

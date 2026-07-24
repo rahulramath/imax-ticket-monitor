@@ -55,6 +55,10 @@ export interface TheaterResult {
   /** Whether the last scrape for this theater succeeded */
   ok: boolean;
   error?: string;
+  /** When this theater's data was last fetched successfully. Stays at the
+   *  older timestamp when a failed scan is backfilled from the previous
+   *  snapshot, so the UI can say how old the data really is. */
+  dataAsOf?: number;
   /** Dates (YYYY-MM-DD) whose fetch failed this scan; previous data for
    *  these dates is carried over by the monitor */
   failedDates?: string[];
