@@ -31,11 +31,15 @@ function seatsLabel(show: Showtime): string | null {
   return `${show.seatsLeft} left`;
 }
 
-function seatsTone(show: Showtime): "plenty" | "low" | "critical" {
-  if (show.seatsLeft === undefined || show.seatsTotal === undefined) return "plenty";
-  const ratio = show.seatsLeft / show.seatsTotal;
-  if (show.seatsLeft <= 10 || ratio < 0.05) return "critical";
-  if (ratio < 0.25) return "low";
+/**
+ * Color tier for a counted show: green when more than 10 seats remain,
+ * yellow at 10 or fewer, red when only accessible (wheelchair/companion)
+ * seats are left. Shows without a count yet stay neutral.
+ */
+function seatsTone(show: Showtime): "plenty" | "low" | "accessible" | "uncounted" {
+  if (show.seatsLeft === undefined) return "uncounted";
+  if (show.seatsLeft === 0 && (show.accessibleSeatsLeft ?? 0) > 0) return "accessible";
+  if (show.seatsLeft <= 10) return "low";
   return "plenty";
 }
 
@@ -76,11 +80,19 @@ function ShowtimeChip({ show, isNew }: { show: Showtime; isNew: boolean }) {
   const almostFull = show.status === "almost_full" && seats === null;
 
   const toneClasses =
-    tone === "critical" || almostFull
-      ? "border-warning-border bg-warning-soft hover:border-warning"
-      : "border-line-strong bg-surface hover:border-accent";
+    tone === "accessible"
+      ? "border-negative/40 bg-negative-soft hover:border-negative"
+      : tone === "low" || almostFull
+        ? "border-warning-border bg-warning-soft hover:border-warning"
+        : tone === "plenty"
+          ? "border-positive/40 bg-positive-soft hover:border-positive"
+          : "border-line-strong bg-surface hover:border-accent";
   const subTextColor =
-    tone === "critical" || tone === "low" || almostFull ? "text-warning" : "text-positive";
+    tone === "accessible"
+      ? "text-negative"
+      : tone === "low" || almostFull
+        ? "text-warning"
+        : "text-positive";
 
   return (
     <a
@@ -166,6 +178,10 @@ export function TheaterCard({
   const hasSeatCounts = showtimes.some((s) => s.seatsLeft !== undefined);
   const totalSeatsLeft = showtimes.reduce((n, s) => n + (s.seatsLeft ?? 0), 0);
   const totalAccessibleLeft = showtimes.reduce((n, s) => n + (s.accessibleSeatsLeft ?? 0), 0);
+  // Shows on sale whose seat map hasn't been read yet. Totals only cover
+  // counted shows, so surface the gap instead of implying a complete number.
+  const countedOnSale = onSale.filter((s) => s.seatsLeft !== undefined).length;
+  const uncountedOnSale = onSale.length - countedOnSale;
 
   const byDate = new Map<string, Showtime[]>();
   for (const s of showtimes) {
@@ -196,14 +212,18 @@ export function TheaterCard({
       className="mt-0.5 inline-flex shrink-0 items-center gap-1.5 rounded-full bg-positive-soft px-3 py-1 text-xs font-semibold text-positive"
       title={
         hasSeatCounts
-          ? `${totalSeatsLeft} seats remaining across ${onSale.length} upcoming showtimes`
+          ? `${totalSeatsLeft} seats counted across ${countedOnSale} of ${onSale.length} shows on sale${
+              uncountedOnSale > 0
+                ? `. ${uncountedOnSale} more show${uncountedOnSale === 1 ? " is" : "s are"} on sale but not counted yet.`
+                : ""
+            }`
           : `${onSale.length} upcoming showtimes you can still buy tickets for`
       }
     >
       <span className="h-1.5 w-1.5 rounded-full bg-positive" />
       {hasSeatCounts
         ? totalSeatsLeft > 0
-          ? `${totalSeatsLeft.toLocaleString()} seat${totalSeatsLeft === 1 ? "" : "s"} left`
+          ? `${totalSeatsLeft.toLocaleString()}${uncountedOnSale > 0 ? "+" : ""} seat${totalSeatsLeft === 1 && uncountedOnSale === 0 ? "" : "s"} left`
           : totalAccessibleLeft > 0
             ? "Accessible seats only"
             : "Sold out"
@@ -263,6 +283,11 @@ export function TheaterCard({
               .slice(0, expanded ? undefined : VISIBLE_DAYS)
               .map(([date, shows]) => {
                 const dayTotal = shows.reduce((n, s) => n + (s.seatsLeft ?? 0), 0);
+                const dayUncounted = shows.filter(
+                  (s) =>
+                    (s.status === "available" || s.status === "almost_full") &&
+                    s.seatsLeft === undefined,
+                ).length;
                 return (
                   <div key={date}>
                     <div className="mb-2 flex items-baseline gap-2">
@@ -271,7 +296,9 @@ export function TheaterCard({
                       </h3>
                       {dayTotal > 0 && (
                         <span className="text-xs text-muted">
-                          {dayTotal} seat{dayTotal === 1 ? "" : "s"} left
+                          {dayTotal}
+                          {dayUncounted > 0 ? "+" : ""} seat
+                          {dayTotal === 1 && dayUncounted === 0 ? "" : "s"} left
                         </span>
                       )}
                     </div>
@@ -295,10 +322,26 @@ export function TheaterCard({
                     } (through ${formatDateHeading([...byDate.keys()].pop()!, todayLocal, tomorrowLocal)})`}
               </button>
             )}
-            {!hasSeatCounts && theater.chain === "amc" && (
-              <p className="text-xs text-muted">
-                AMC doesn&apos;t publish seat counts — &ldquo;almost full&rdquo; is their own
-                low-availability flag. Open a showtime to see the live seat map.
+            {theater.chain === "cinemark" && hasSeatCounts && (
+              <p className="text-xs leading-relaxed text-muted">
+                Counts are read from Cinemark&apos;s live seat maps. Green means more than 10
+                seats, yellow means 10 or fewer, and red means only wheelchair and companion
+                seats remain.
+                {uncountedOnSale > 0 && (
+                  <>
+                    {" "}
+                    The &ldquo;+&rdquo; totals are incomplete: {uncountedOnSale} show
+                    {uncountedOnSale === 1 ? " is" : "s are"} on sale but not counted yet, and
+                    show a plain &ldquo;on sale&rdquo; until their seat map is read.
+                  </>
+                )}
+              </p>
+            )}
+            {theater.chain === "amc" && (
+              <p className="text-xs leading-relaxed text-muted">
+                AMC doesn&apos;t share seat numbers. &ldquo;On sale&rdquo; and &ldquo;almost
+                full&rdquo; are AMC&apos;s own labels. Open a showtime to see its live seat
+                map.
               </p>
             )}
           </div>
