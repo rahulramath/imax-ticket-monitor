@@ -843,5 +843,8 @@ export async function scanAllTheaters(): Promise<TheaterResult[]> {
     scanAmc().catch((e) => failedResult(THEATERS.amc, e)),
     scanBullock().catch((e) => failedResult(THEATERS.bullock, e)),
   ]);
-  return [cinemark, amc, bullock];
+  const results = [cinemark, amc, bullock];
+  const now = Date.now();
+  for (const r of results) if (r.ok) r.dataAsOf = now;
+  return results;
 }

@@ -12,6 +12,13 @@ const CHAIN_STYLES: Record<TheaterResult["chain"], { label: string; className: s
   bullock: { label: "BULLOCK IMAX", className: "bg-[#00517d] text-white" },
 };
 
+function agoLabel(ts: number): string {
+  const min = Math.max(1, Math.round((Date.now() - ts) / 60_000));
+  if (min < 60) return `${min} minute${min === 1 ? "" : "s"} ago`;
+  const h = Math.round(min / 60);
+  return `${h} hour${h === 1 ? "" : "s"} ago`;
+}
+
 function addDays(dateStr: string, n: number): string {
   const [y, m, d] = dateStr.split("-").map(Number);
   return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10);
@@ -175,6 +182,10 @@ export function TheaterCard({
 }) {
   const [expanded, setExpanded] = useState(false);
   const chain = CHAIN_STYLES[theater.chain];
+  // Carried-over data from a failed check gets flagged once it's older than
+  // a couple of refresh cycles.
+  const isStaleData =
+    theater.ok && theater.dataAsOf !== undefined && Date.now() - theater.dataAsOf > 40 * 60_000;
   const showtimes = theater.showtimes.filter((s) => s.movieId === movieId);
   const engagements = (theater.engagements ?? []).filter((e) => e.movieId === movieId);
   const onSale = showtimes.filter(
@@ -276,6 +287,13 @@ export function TheaterCard({
       </header>
 
       <div className="flex-1 p-5 sm:p-6">
+        {isStaleData && (
+          <p className="mb-4 rounded-md border border-warning-border bg-warning-soft px-3 py-2 text-xs leading-relaxed text-warning">
+            The last check couldn&apos;t reach {theater.theaterName}, so this is the most
+            recent good data, from {agoLabel(theater.dataAsOf!)}. Checks keep retrying
+            automatically.
+          </p>
+        )}
         {!theater.ok ? (
           <div className="rounded-lg border border-dashed border-line-strong p-6 text-center">
             <p className="text-sm font-medium">Couldn&apos;t reach {theater.theaterName}</p>
