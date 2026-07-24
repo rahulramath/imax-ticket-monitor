@@ -2,11 +2,12 @@ name: Scrape & deploy to GitHub Pages
 
 on:
   schedule:
-    # Refresh availability every ~30 min. GitHub cron is best-effort — runs
-    # are often delayed 15-60 min or occasionally skipped, so scheduling at
-    # twice the desired rate (at off-peak minutes) lands at an effective
-    # refresh of roughly every 30-60 minutes.
-    - cron: "11,41 * * * *"
+    # Backstop only. The real cadence comes from the workflow re-triggering
+    # itself after each deploy (see "Chain next run" below) — GitHub's cron
+    # scheduler is best-effort and in practice skips most 30-min slots. This
+    # hourly cron just restarts the chain if a run failed or was never
+    # dispatched.
+    - cron: "23 * * * *"
   push:
     branches: [main]
   workflow_dispatch:
@@ -15,6 +16,8 @@ permissions:
   contents: read
   pages: write
   id-token: write
+  # Needed for the chain step to dispatch the next run
+  actions: write
 
 # Never run two deploys at once; a newer run supersedes an in-flight one
 concurrency:
@@ -74,3 +77,19 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+
+      - name: Chain next run
+        # Self-perpetuating refresh loop: after a successful deploy, wait a
+        # few minutes and dispatch the next run. Combined with the ~10 min a
+        # scrape+deploy takes, the site refreshes every ~15-20 minutes —
+        # far more reliable than GitHub's best-effort cron. workflow_dispatch
+        # via GITHUB_TOKEN is exempt from GitHub's anti-recursion rule, and
+        # the concurrency group caps things at one running + one pending run,
+        # so overlapping chains (e.g. a push mid-cycle) merge instead of
+        # multiplying. Failed runs skip this step; the hourly cron backstop
+        # restarts the chain.
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          sleep 300
+          gh workflow run deploy.yml --repo "$GITHUB_REPOSITORY" --ref main
