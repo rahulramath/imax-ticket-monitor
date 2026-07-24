@@ -400,17 +400,16 @@ export function Dashboard() {
       </header>
 
       {/* Intro */}
-      <div className="fade-up mt-1 max-w-3xl" style={{ animationDelay: "80ms" }}>
+      <div className="fade-up mt-1" style={{ animationDelay: "80ms" }}>
         <p className="text-sm leading-relaxed text-muted">
           Tickets for big IMAX runs vanish in minutes, and keeping up means refreshing
-          three theater sites that each show availability differently. I got tired of
-          doing that, so I built a board that does it instead: it watches every showtime,
-          counts seats where it can, and rechecks{" "}
+          three theater sites that each show availability differently. So this board does
+          the refreshing instead, across the screens I care about most, and rechecks{" "}
           {IS_STATIC ? "every 15 to 30 minutes" : "every few minutes"}. Tap any time to buy.
         </p>
         <ul className="mt-3 space-y-1.5 text-sm leading-relaxed text-muted">
           <li className="flex gap-2.5">
-            <span className="mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full bg-[#c8102e]" />
+            <span className="mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full bg-[#3558b8]" />
             <span>
               <span className="font-semibold text-foreground">Cinemark Dallas XD and IMAX</span>
               {" "}· IMAX 70mm film, 1.43:1. Exact seats left, read from each
@@ -421,12 +420,12 @@ export function Dashboard() {
             <span className="mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full bg-[#d81f26]" />
             <span>
               <span className="font-semibold text-foreground">AMC Lincoln Square 13</span>
-              {" "}· IMAX 70mm film, 1.43:1. AMC hides seat numbers, so you get their own
-              on sale and almost full labels.
+              {" "}· IMAX 70mm film, 1.43:1. AMC hides seat numbers; their on sale and
+              almost full labels can run optimistic.
             </span>
           </li>
           <li className="flex gap-2.5">
-            <span className="mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full bg-[#00517d]" />
+            <span className="mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full bg-[#b07b3e]" />
             <span>
               <span className="font-semibold text-foreground">Bullock Museum IMAX, Austin</span>
               {" "}· IMAX DL2 dual laser, 1.43:1. On sale or sold out for the whole run.
@@ -581,7 +580,7 @@ export function Dashboard() {
         </span>
         <span className="inline-flex items-center gap-1.5">
           <span className="inline-block h-3 w-6 rounded border border-warning-border bg-warning-soft" />
-          10 or fewer, or almost full
+          10 or fewer, or AMC&apos;s &ldquo;almost full*&rdquo;
         </span>
         <span className="inline-flex items-center gap-1.5">
           <span className="inline-block h-3 w-6 rounded border border-negative/40 bg-negative-soft" />

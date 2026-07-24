@@ -6,10 +6,12 @@ import type { Engagement, Showtime, TheaterResult } from "@/lib/types";
 /** Date groups shown before the "show more" fold */
 const VISIBLE_DAYS = 7;
 
+// Brand-accurate and distinct: Cinemark's wordmark navy, AMC's signature
+// red, and the bronze of the Bullock's landmark star.
 const CHAIN_STYLES: Record<TheaterResult["chain"], { label: string; className: string }> = {
-  cinemark: { label: "CINEMARK", className: "bg-[#c8102e] text-white" },
+  cinemark: { label: "CINEMARK", className: "bg-[#002569] text-white" },
   amc: { label: "AMC", className: "bg-[#d81f26] text-white" },
-  bullock: { label: "BULLOCK IMAX", className: "bg-[#00517d] text-white" },
+  bullock: { label: "BULLOCK IMAX", className: "bg-[#8a5a2b] text-white" },
 };
 
 function agoLabel(ts: number): string {
@@ -118,7 +120,7 @@ function ShowtimeChip({ show, isNew }: { show: Showtime; isNew: boolean }) {
       <span
         className={`text-[10px] font-semibold uppercase tracking-wide leading-tight ${subTextColor}`}
       >
-        {seats ?? (almostFull ? "Almost full" : "On sale")}
+        {seats ?? (almostFull ? "Almost full*" : "On sale")}
       </span>
       {isNew && (
         <span className="absolute -right-1.5 -top-1.5 rounded bg-accent px-1 py-px text-[9px] font-bold uppercase tracking-wide text-white">
@@ -276,7 +278,7 @@ export function TheaterCard({
           >
             {chain.label}
           </span>
-          <h2 className="mt-2 truncate text-lg font-semibold tracking-tight">
+          <h2 className="mt-2 text-lg font-semibold leading-snug tracking-tight">
             {theater.theaterName}
           </h2>
           <p className="text-sm text-muted">
@@ -379,9 +381,9 @@ export function TheaterCard({
             )}
             {theater.chain === "amc" && (
               <p className="text-xs leading-relaxed text-muted">
-                AMC doesn&apos;t share seat numbers. &ldquo;On sale&rdquo; and &ldquo;almost
-                full&rdquo; are AMC&apos;s own labels. Open a showtime to see its live seat
-                map.
+                *AMC doesn&apos;t share seat numbers, and their labels run optimistic:
+                a show marked &ldquo;almost full&rdquo; can already be sold out. Open the
+                showtime to check its live seat map before counting on it.
               </p>
             )}
           </div>
