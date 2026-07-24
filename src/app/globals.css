@@ -63,6 +63,7 @@
   --color-chip-on-text: var(--chip-on-text);
   --font-sans: var(--font-inter);
   --font-mono: var(--font-geist-mono);
+  --font-imax: var(--font-archivo-black);
 }
 
 body {

@@ -12,6 +12,11 @@ const CHAIN_STYLES: Record<TheaterResult["chain"], { label: string; className: s
   bullock: { label: "BULLOCK IMAX", className: "bg-[#00517d] text-white" },
 };
 
+function addDays(dateStr: string, n: number): string {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10);
+}
+
 function formatDateHeading(localDate: string, todayLocal: string, tomorrowLocal: string): string {
   if (localDate === todayLocal) return "Today";
   if (localDate === tomorrowLocal) return "Tomorrow";
@@ -182,6 +187,17 @@ export function TheaterCard({
   // counted shows, so surface the gap instead of implying a complete number.
   const countedOnSale = onSale.filter((s) => s.seatsLeft !== undefined).length;
   const uncountedOnSale = onSale.length - countedOnSale;
+  // The headline badge is scoped to the next 7 days: an all-dates total mixes
+  // this weekend's scraps with barely-sold shows a month out, which reads as
+  // one meaningless big number.
+  const weekCutoff = addDays(todayLocal, 7);
+  const weekShows = showtimes.filter((s) => s.localDate <= weekCutoff);
+  const weekOnSale = weekShows.filter(
+    (s) => s.status === "available" || s.status === "almost_full",
+  );
+  const weekSeatsLeft = weekShows.reduce((n, s) => n + (s.seatsLeft ?? 0), 0);
+  const weekAccessibleLeft = weekShows.reduce((n, s) => n + (s.accessibleSeatsLeft ?? 0), 0);
+  const weekUncounted = weekOnSale.filter((s) => s.seatsLeft === undefined).length;
 
   const byDate = new Map<string, Showtime[]>();
   for (const s of showtimes) {
@@ -212,21 +228,25 @@ export function TheaterCard({
       className="mt-0.5 inline-flex shrink-0 items-center gap-1.5 rounded-full bg-positive-soft px-3 py-1 text-xs font-semibold text-positive"
       title={
         hasSeatCounts
-          ? `${totalSeatsLeft} seats counted across ${countedOnSale} of ${onSale.length} shows on sale${
-              uncountedOnSale > 0
-                ? `. ${uncountedOnSale} more show${uncountedOnSale === 1 ? " is" : "s are"} on sale but not counted yet.`
-                : ""
-            }`
+          ? `Next 7 days: ${weekSeatsLeft} seats counted${
+              weekUncounted > 0 ? ` (${weekUncounted} shows not counted yet)` : ""
+            }. All dates: ${totalSeatsLeft} seats across ${countedOnSale} of ${onSale.length} shows on sale.`
           : `${onSale.length} upcoming showtimes you can still buy tickets for`
       }
     >
       <span className="h-1.5 w-1.5 rounded-full bg-positive" />
       {hasSeatCounts
-        ? totalSeatsLeft > 0
-          ? `${totalSeatsLeft.toLocaleString()}${uncountedOnSale > 0 ? "+" : ""} seat${totalSeatsLeft === 1 && uncountedOnSale === 0 ? "" : "s"} left`
-          : totalAccessibleLeft > 0
-            ? "Accessible seats only"
-            : "Sold out"
+        ? weekOnSale.length > 0
+          ? weekSeatsLeft > 0
+            ? `${weekSeatsLeft.toLocaleString()}${weekUncounted > 0 ? "+" : ""} seat${weekSeatsLeft === 1 && weekUncounted === 0 ? "" : "s"} this week`
+            : weekAccessibleLeft > 0
+              ? "Accessible only this week"
+              : `${totalSeatsLeft.toLocaleString()}${uncountedOnSale > 0 ? "+" : ""} seats later on`
+          : totalSeatsLeft > 0
+            ? `${totalSeatsLeft.toLocaleString()}${uncountedOnSale > 0 ? "+" : ""} seats left`
+            : totalAccessibleLeft > 0
+              ? "Accessible seats only"
+              : "Sold out"
         : `${onSale.length} shows on sale`}
     </span>
   ) : (
@@ -271,7 +291,9 @@ export function TheaterCard({
           </div>
         ) : showtimes.length === 0 ? (
           <div className="rounded-lg border border-dashed border-line-strong p-6 text-center">
-            <p className="text-sm font-medium">No {theater.formatLabel} showtimes listed</p>
+            <p className="text-sm font-medium">
+              No {theater.formatLabel.split(" ·")[0]} showtimes listed
+            </p>
             <p className="mt-1 text-sm text-muted">
               We&apos;re checking every few minutes across all dates this theater sells, and
               will flag showtimes the moment they appear.
