@@ -312,12 +312,30 @@ export function Dashboard() {
       {/* Header */}
       <header className="flex flex-wrap items-center justify-between gap-3 py-5">
         <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-chip-on text-[11px] font-black tracking-tight text-chip-on-text">
-            70
+          {/* Film-frame logo mark */}
+          <div
+            aria-hidden
+            className="logo-mark relative flex h-10 w-10 select-none items-center justify-center rounded-xl bg-chip-on text-chip-on-text"
+          >
+            <span className="absolute inset-y-[7px] left-[5px] flex flex-col justify-between">
+              {[0, 1, 2].map((i) => (
+                <span key={i} className="h-[3px] w-[3px] rounded-[1px] bg-chip-on-text/40" />
+              ))}
+            </span>
+            <span className="absolute inset-y-[7px] right-[5px] flex flex-col justify-between">
+              {[0, 1, 2].map((i) => (
+                <span key={i} className="h-[3px] w-[3px] rounded-[1px] bg-chip-on-text/40" />
+              ))}
+            </span>
+            <span className="text-[13px] font-black leading-none tracking-tight">
+              70<span className="align-top text-[6px] font-bold">MM</span>
+            </span>
           </div>
-          <div>
-            <p className="text-sm font-bold leading-tight tracking-tight">IMAX Ticket Monitor</p>
-            <p className="text-xs text-muted">70mm · 1.43 Dual Laser · 3 theaters</p>
+          <div className="fade-up" style={{ animationDelay: "150ms" }}>
+            <p className="text-[15px] font-black leading-tight tracking-tight">
+              IMAX Ticket Monitor
+            </p>
+            <p className="text-xs text-muted">Every seat on film&apos;s biggest screens</p>
           </div>
         </div>
 
@@ -360,6 +378,18 @@ export function Dashboard() {
               {notifyEnabled ? "🔔 On" : "Notify me"}
             </button>
           )}
+          <a
+            href="https://github.com/rahulramath/imax-ticket-monitor"
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="View source on GitHub"
+            title="Built by Rahul. View the source on GitHub."
+            className="flex h-9 w-9 items-center justify-center rounded-md border border-line-strong bg-surface transition-colors hover:border-foreground"
+          >
+            <svg viewBox="0 0 16 16" className="h-4 w-4 fill-current" aria-hidden>
+              <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z" />
+            </svg>
+          </a>
           <button
             onClick={toggleTheme}
             aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
@@ -372,26 +402,61 @@ export function Dashboard() {
       </header>
 
       {/* Intro */}
-      <p className="mt-1 max-w-3xl text-sm leading-relaxed text-muted">
-        A personal tracker for the hardest tickets in film: premium-format IMAX runs, followed
-        seat by seat across three theaters — Cinemark Dallas and AMC Lincoln Square in 70mm
-        film, and Austin&apos;s Bullock Museum on the only 1.43         dual-laser screen in Texas.{" "}
-        {IS_STATIC
-          ? "Availability refreshes automatically every 15\u201330 minutes, and each showtime links straight to its purchase page."
-          : "Everything checks automatically every few minutes, and each showtime links straight to its purchase page."}{" "}
-        Tracking is scoped to what I&apos;m personally chasing right now —{" "}
-        {REQUEST_EMAIL ? (
-          <button
-            onClick={openRequestEmail}
+      <div className="fade-up mt-1 max-w-3xl" style={{ animationDelay: "80ms" }}>
+        <p className="text-sm leading-relaxed text-muted">
+          My friends and I kept missing 70mm tickets, so I built a board that never stops
+          looking. It watches our favorite theaters{" "}
+          {IS_STATIC ? "and rechecks every 15 to 30 minutes" : "and rechecks every few minutes"}.
+          Tap any time to buy.
+        </p>
+        <ul className="mt-3 space-y-1.5 text-sm leading-relaxed text-muted">
+          <li className="flex gap-2.5">
+            <span className="mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full bg-[#c8102e]" />
+            <span>
+              <span className="font-semibold text-foreground">Cinemark Dallas XD and IMAX</span>
+              {" "}· 70mm film. Exact seats left, read from each showtime&apos;s seat map.
+            </span>
+          </li>
+          <li className="flex gap-2.5">
+            <span className="mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full bg-[#d81f26]" />
+            <span>
+              <span className="font-semibold text-foreground">AMC Lincoln Square 13</span>
+              {" "}· 70mm film. AMC hides seat numbers, so you get their own on sale and
+              almost full labels.
+            </span>
+          </li>
+          <li className="flex gap-2.5">
+            <span className="mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full bg-[#00517d]" />
+            <span>
+              <span className="font-semibold text-foreground">Bullock Museum IMAX, Austin</span>
+              {" "}· 1.43 dual laser. On sale or sold out for the whole run.
+            </span>
+          </li>
+        </ul>
+        <p className="mt-3 text-sm leading-relaxed text-muted">
+          Built by{" "}
+          <a
+            href="https://github.com/rahulramath"
+            target="_blank"
+            rel="noopener noreferrer"
             className="font-semibold text-accent hover:underline"
           >
-            request your local theater or another movie
-          </button>
-        ) : (
-          <span>requests for other theaters and movies are welcome</span>
-        )}
-        .
-      </p>
+            Rahul
+          </a>
+          , tracking what we&apos;re chasing right now.{" "}
+          {REQUEST_EMAIL ? (
+            <button
+              onClick={openRequestEmail}
+              className="font-semibold text-accent hover:underline"
+            >
+              Request your theater or another movie
+            </button>
+          ) : (
+            <span>Requests for other theaters and movies are welcome</span>
+          )}
+          .
+        </p>
+      </div>
 
       {/* Level 1: pick a film */}
       <div className="mt-8">
@@ -505,15 +570,19 @@ export function Dashboard() {
       <div className="mt-8 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-muted">
         <span className="inline-flex items-center gap-1.5">
           <span className="inline-block h-3 w-6 rounded border border-line-strong bg-surface" />
-          On sale — click a time to buy
+          On sale, click a time to buy
         </span>
         <span className="inline-flex items-center gap-1.5">
-          <span className="font-semibold text-positive">12 left</span>
-          Exact seats remaining (Cinemark)
+          <span className="inline-block h-3 w-6 rounded border border-positive/40 bg-positive-soft" />
+          More than 10 seats left
         </span>
         <span className="inline-flex items-center gap-1.5">
           <span className="inline-block h-3 w-6 rounded border border-warning-border bg-warning-soft" />
-          Almost full
+          10 or fewer, or almost full
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span className="inline-block h-3 w-6 rounded border border-negative/40 bg-negative-soft" />
+          Accessible seats only
         </span>
         <span className="inline-flex items-center gap-1.5">
           <span className="text-muted line-through">7:00 PM</span>
@@ -527,7 +596,7 @@ export function Dashboard() {
           <span className="rounded bg-accent px-1 py-px text-[9px] font-bold uppercase text-white">
             New
           </span>
-          New showtime or sale just opened
+          Just appeared or went on sale
         </span>
       </div>
     </div>
