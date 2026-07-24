@@ -312,30 +312,28 @@ export function Dashboard() {
       {/* Header */}
       <header className="flex flex-wrap items-center justify-between gap-3 py-5">
         <div className="flex items-center gap-3">
-          {/* Film-frame logo mark */}
+          {/* Film-frame logo mark: perforations like real 70mm stock */}
           <div
             aria-hidden
-            className="logo-mark relative flex h-10 w-10 select-none items-center justify-center rounded-xl bg-chip-on text-chip-on-text"
+            className="logo-mark relative flex h-10 w-10 select-none items-center justify-center rounded-lg bg-chip-on text-chip-on-text"
           >
-            <span className="absolute inset-y-[7px] left-[5px] flex flex-col justify-between">
-              {[0, 1, 2].map((i) => (
-                <span key={i} className="h-[3px] w-[3px] rounded-[1px] bg-chip-on-text/40" />
+            <span className="absolute inset-y-[5px] left-[4px] flex flex-col justify-between">
+              {[0, 1, 2, 3].map((i) => (
+                <span key={i} className="h-[5px] w-[3.5px] rounded-[1.5px] bg-background" />
               ))}
             </span>
-            <span className="absolute inset-y-[7px] right-[5px] flex flex-col justify-between">
-              {[0, 1, 2].map((i) => (
-                <span key={i} className="h-[3px] w-[3px] rounded-[1px] bg-chip-on-text/40" />
+            <span className="absolute inset-y-[5px] right-[4px] flex flex-col justify-between">
+              {[0, 1, 2, 3].map((i) => (
+                <span key={i} className="h-[5px] w-[3.5px] rounded-[1.5px] bg-background" />
               ))}
             </span>
-            <span className="text-[13px] font-black leading-none tracking-tight">
-              70<span className="align-top text-[6px] font-bold">MM</span>
-            </span>
+            <span className="font-imax text-[12px] leading-none">70</span>
           </div>
           <div className="fade-up" style={{ animationDelay: "150ms" }}>
-            <p className="text-[15px] font-black leading-tight tracking-tight">
-              IMAX Ticket Monitor
+            <p className="font-imax text-[15px] leading-none tracking-tight">70MM IMAX</p>
+            <p className="mt-[3px] text-[10px] font-bold uppercase tracking-[0.26em] text-muted">
+              Ticket Monitor
             </p>
-            <p className="text-xs text-muted">Every seat on film&apos;s biggest screens</p>
           </div>
         </div>
 
@@ -404,32 +402,34 @@ export function Dashboard() {
       {/* Intro */}
       <div className="fade-up mt-1 max-w-3xl" style={{ animationDelay: "80ms" }}>
         <p className="text-sm leading-relaxed text-muted">
-          My friends and I kept missing 70mm tickets, so I built a board that never stops
-          looking. It watches our favorite theaters{" "}
-          {IS_STATIC ? "and rechecks every 15 to 30 minutes" : "and rechecks every few minutes"}.
-          Tap any time to buy.
+          Tickets for big IMAX runs vanish in minutes, and keeping up means refreshing
+          three theater sites that each show availability differently. I got tired of
+          doing that, so I built a board that does it instead: it watches every showtime,
+          counts seats where it can, and rechecks{" "}
+          {IS_STATIC ? "every 15 to 30 minutes" : "every few minutes"}. Tap any time to buy.
         </p>
         <ul className="mt-3 space-y-1.5 text-sm leading-relaxed text-muted">
           <li className="flex gap-2.5">
             <span className="mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full bg-[#c8102e]" />
             <span>
               <span className="font-semibold text-foreground">Cinemark Dallas XD and IMAX</span>
-              {" "}· 70mm film. Exact seats left, read from each showtime&apos;s seat map.
+              {" "}· IMAX 70mm film, 1.43:1. Exact seats left, read from each
+              showtime&apos;s seat map.
             </span>
           </li>
           <li className="flex gap-2.5">
             <span className="mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full bg-[#d81f26]" />
             <span>
               <span className="font-semibold text-foreground">AMC Lincoln Square 13</span>
-              {" "}· 70mm film. AMC hides seat numbers, so you get their own on sale and
-              almost full labels.
+              {" "}· IMAX 70mm film, 1.43:1. AMC hides seat numbers, so you get their own
+              on sale and almost full labels.
             </span>
           </li>
           <li className="flex gap-2.5">
             <span className="mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full bg-[#00517d]" />
             <span>
               <span className="font-semibold text-foreground">Bullock Museum IMAX, Austin</span>
-              {" "}· 1.43 dual laser. On sale or sold out for the whole run.
+              {" "}· IMAX DL2 dual laser, 1.43:1. On sale or sold out for the whole run.
             </span>
           </li>
         </ul>
@@ -443,18 +443,21 @@ export function Dashboard() {
           >
             Rahul
           </a>
-          , tracking what we&apos;re chasing right now.{" "}
+          .{" "}
           {REQUEST_EMAIL ? (
-            <button
-              onClick={openRequestEmail}
-              className="font-semibold text-accent hover:underline"
-            >
-              Request your theater or another movie
-            </button>
+            <>
+              Want a theater or movie added?{" "}
+              <button
+                onClick={openRequestEmail}
+                className="font-semibold text-accent hover:underline"
+              >
+                Send a request
+              </button>
+              .
+            </>
           ) : (
-            <span>Requests for other theaters and movies are welcome</span>
+            <span>Requests for more theaters and movies are welcome.</span>
           )}
-          .
         </p>
       </div>
 
