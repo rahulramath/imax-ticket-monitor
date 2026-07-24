@@ -11,6 +11,11 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      chained:
+        description: "Set by the self-chaining step; pauses before scraping"
+        required: false
+        default: "false"
 
 permissions:
   contents: read
@@ -19,10 +24,12 @@ permissions:
   # Needed for the chain step to dispatch the next run
   actions: write
 
-# Never run two deploys at once; a newer run supersedes an in-flight one
+# Never run two deploys at once. Queue (don't cancel) so a chained child run
+# doesn't kill its still-finishing parent; GitHub keeps at most one pending
+# run per group, so runs never pile up.
 concurrency:
   group: pages
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   scrape-and-deploy:
@@ -32,6 +39,12 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      - name: Pace chained runs
+        # Keeps the self-perpetuating loop at ~15-20 min per cycle instead of
+        # back-to-back scrapes. Manual dispatches skip this.
+        if: github.event.inputs.chained == 'true'
+        run: sleep 300
+
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
@@ -79,17 +92,16 @@ jobs:
         uses: actions/deploy-pages@v4
 
       - name: Chain next run
-        # Self-perpetuating refresh loop: after a successful deploy, wait a
-        # few minutes and dispatch the next run. Combined with the ~10 min a
-        # scrape+deploy takes, the site refreshes every ~15-20 minutes —
-        # far more reliable than GitHub's best-effort cron. workflow_dispatch
-        # via GITHUB_TOKEN is exempt from GitHub's anti-recursion rule, and
-        # the concurrency group caps things at one running + one pending run,
-        # so overlapping chains (e.g. a push mid-cycle) merge instead of
-        # multiplying. Failed runs skip this step; the hourly cron backstop
-        # restarts the chain.
+        # Self-perpetuating refresh loop: after a successful deploy, dispatch
+        # the next run (which pauses 5 min before scraping — see "Pace
+        # chained runs"). With the ~10 min a scrape+deploy takes, the site
+        # refreshes every ~15-20 minutes — far more reliable than GitHub's
+        # best-effort cron. workflow_dispatch via GITHUB_TOKEN is exempt from
+        # GitHub's anti-recursion rule, and the concurrency group caps things
+        # at one running + one pending run, so overlapping chains (e.g. a
+        # push or the cron backstop mid-cycle) merge instead of multiplying.
+        # Failed runs skip this step; the hourly cron backstop restarts the
+        # chain.
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          sleep 300
-          gh workflow run deploy.yml --repo "$GITHUB_REPOSITORY" --ref main
+        run: gh workflow run deploy.yml --repo "$GITHUB_REPOSITORY" --ref main -f chained=true
