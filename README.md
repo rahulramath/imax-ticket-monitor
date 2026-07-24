@@ -35,9 +35,11 @@ Then open [http://localhost:3000](http://localhost:3000).
 This repo ships with a GitHub Actions workflow (`.github/workflows/deploy.yml`) that
 scrapes all theaters on GitHub's runners, builds a fully static version of the
 site, and publishes it to GitHub Pages. Your computer stays off; there is no
-server to maintain. The schedule fires every 30 minutes, but GitHub cron is
-best-effort (runs are routinely delayed 15–60 minutes or occasionally skipped),
-so expect an effective refresh of every 30–60 minutes.
+server to maintain. Rather than relying on GitHub's cron scheduler (which is
+best-effort and in practice skips most slots), each run re-dispatches the next
+one after deploying, forming a continuous refresh loop of roughly every 15–30
+minutes. An hourly cron acts as a backstop that restarts the chain if a run
+fails.
 
 One-time setup after pushing to GitHub:
 
