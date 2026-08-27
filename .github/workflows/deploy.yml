@@ -24,12 +24,15 @@ permissions:
   # Needed for the chain step to dispatch the next run
   actions: write
 
-# Never run two deploys at once. Queue (don't cancel) so a chained child run
-# doesn't kill its still-finishing parent; GitHub keeps at most one pending
-# run per group, so runs never pile up.
+# Never run two deploys at once. Chained/push runs queue (don't cancel) so a
+# child run doesn't kill its still-finishing parent; GitHub keeps at most one
+# pending run per group, so runs never pile up. Scheduled runs DO cancel the
+# group's occupant: the hourly cron doubles as a watchdog, because a run once
+# got stuck in GitHub's deployment queue ("waiting") for three weeks and
+# blocked every subsequent deploy behind it.
 concurrency:
   group: pages
-  cancel-in-progress: false
+  cancel-in-progress: ${{ github.event_name == 'schedule' }}
 
 jobs:
   scrape-and-deploy:
