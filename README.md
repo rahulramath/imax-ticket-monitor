@@ -56,9 +56,31 @@ The static build differs from the live server in a few honest ways:
   since both need a live server.
 - "NEW" showtime flagging needs scan-to-scan memory, which fresh CI runners
   don't have, so static deploys don't badge new showtimes.
-- GitHub's datacenter IPs get less friendly treatment from Cloudflare than a
-  home connection; if a scrape run fails entirely, the deploy is skipped and
-  the previous data stays live.
+- GitHub's datacenter IPs get blocked by Cloudflare on Cinemark and AMC (AMC
+  moved fully behind a Cloudflare challenge in Sep 2026; Fandango still
+  supplies AMC showtimes). A theater whose scan fails keeps its last good
+  data, and the card says how old that data is once it passes 3 hours.
+
+### Home-connection data feed (keeps the hosted data fresh)
+
+Because the runners get blocked, a Mac at home does the actual scraping and
+publishes the result to the repo's `data` branch; each GitHub deploy merges in
+whichever source (its own scan or the home feed) has the newer successful
+fetch per theater. Install the scheduled job once:
+
+```bash
+scripts/install-local-refresh.sh          # hourly (default)
+scripts/install-local-refresh.sh 43200    # every 12 hours
+scripts/install-local-refresh.sh 86400    # daily
+scripts/install-local-refresh.sh --uninstall
+```
+
+It's a launchd agent (`com.rahulramath.imax-monitor`) that runs
+`scripts/local-refresh.sh`, i.e. `npm run scrape && npm run publish-snapshot`.
+If the Mac is asleep when a run is due, it runs once on wake. Logs land in
+`~/Library/Logs/imax-monitor.log`. Publishing authenticates with the `gh` CLI
+token for the `rahulramath` account explicitly (`GH_USER` to override), so a
+work account being the active `gh` login doesn't break it.
 
 ### Live server (full features)
 
