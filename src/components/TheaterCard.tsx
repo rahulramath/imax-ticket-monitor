@@ -185,9 +185,10 @@ export function TheaterCard({
   const [expanded, setExpanded] = useState(false);
   const chain = CHAIN_STYLES[theater.chain];
   // Carried-over data from a failed check gets flagged once it's older than
-  // a couple of refresh cycles.
+  // the normal refresh cadence (GitHub runs every ~15 min, the home feed
+  // hourly) by a comfortable margin.
   const isStaleData =
-    theater.ok && theater.dataAsOf !== undefined && Date.now() - theater.dataAsOf > 40 * 60_000;
+    theater.ok && theater.dataAsOf !== undefined && Date.now() - theater.dataAsOf > 3 * 3_600_000;
   const showtimes = theater.showtimes.filter((s) => s.movieId === movieId);
   const engagements = (theater.engagements ?? []).filter((e) => e.movieId === movieId);
   const onSale = showtimes.filter(

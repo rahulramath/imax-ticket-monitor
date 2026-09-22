@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "scrape": "tsx scripts/scrape.ts"
+    "scrape": "tsx scripts/scrape.ts",
+    "publish-snapshot": "tsx scripts/publish-snapshot.ts"
   },
   "dependencies": {
     "next": "16.2.11",

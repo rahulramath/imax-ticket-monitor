@@ -757,10 +757,12 @@ async function scanAmc(): Promise<TheaterResult> {
   return {
     ...metaToResult(meta),
     showtimes,
-    ok: errors.length < dates.length,
+    // Fandango backfill makes a scan useful even when AMC's own pages are
+    // all blocked (AMC moved behind a Cloudflare challenge in Sep 2026).
+    ok: showtimes.length > 0 || errors.length < dates.length,
     error:
       errors.length > 0
-        ? `${errors.length}/${dates.length} date(s) failed, e.g. ${errors[0]}`
+        ? `${errors.length}/${dates.length} AMC page(s) failed, e.g. ${errors[0]}`
         : undefined,
     failedDates,
   };

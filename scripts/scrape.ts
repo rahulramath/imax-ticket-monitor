@@ -11,32 +11,53 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { applyCarryOver } from "../src/lib/carryover";
 import { scanAllTheaters, topUpCinemarkSeatCounts } from "../src/lib/scrapers";
-import type { MonitorSnapshot } from "../src/lib/types";
+import type { MonitorSnapshot, TheaterResult } from "../src/lib/types";
 
 const OUT_PATH = join(process.cwd(), "public", "data", "snapshot.json");
 
-/** The currently deployed snapshot, used to fill gaps (failed dates, seat
- *  counts not covered by this run's rotation). Set by the CI workflow. */
-async function fetchPreviousSnapshot(): Promise<MonitorSnapshot | null> {
-  const url = process.env.PREV_SNAPSHOT_URL;
+async function fetchSnapshot(url: string | undefined, label: string): Promise<MonitorSnapshot | null> {
   if (!url) return null;
   try {
     const res = await fetch(url, { signal: AbortSignal.timeout(15_000), cache: "no-store" });
     if (!res.ok) return null;
-    const prev = (await res.json()) as MonitorSnapshot;
-    // Ignore snapshots that are too old to be trustworthy (>24h)
-    if (Date.now() - prev.lastChecked > 24 * 60 * 60_000) return null;
-    console.log(`Loaded previous snapshot (${Math.round((Date.now() - prev.lastChecked) / 60000)}m old) for carry-over`);
-    return prev;
+    const snap = (await res.json()) as MonitorSnapshot;
+    console.log(
+      `Loaded ${label} snapshot (${Math.round((Date.now() - snap.lastChecked) / 60000)}m old)`,
+    );
+    return snap;
   } catch {
     return null;
   }
 }
 
+/**
+ * Sources that fill gaps in this run's scan (failed dates, blocked theaters,
+ * seat counts not covered by the rotation), set by the CI workflow:
+ *  - PREV_SNAPSHOT_URL: the currently deployed snapshot
+ *  - LOCAL_SNAPSHOT_URL: the `data` branch feed published by a home machine
+ *    (see scripts/publish-snapshot.ts), which Cloudflare doesn't block the
+ *    way it blocks GitHub's datacenter IPs
+ * Per theater, whichever source has the newer successful fetch wins.
+ */
+async function fetchCarryOverSources(): Promise<TheaterResult[]> {
+  const [deployed, local] = await Promise.all([
+    fetchSnapshot(process.env.PREV_SNAPSHOT_URL, "deployed"),
+    fetchSnapshot(process.env.LOCAL_SNAPSHOT_URL, "local feed"),
+  ]);
+  const best = new Map<string, TheaterResult>();
+  for (const snap of [deployed, local]) {
+    for (const t of snap?.theaters ?? []) {
+      const cur = best.get(t.theaterId);
+      if (!cur || (t.dataAsOf ?? 0) > (cur.dataAsOf ?? 0)) best.set(t.theaterId, t);
+    }
+  }
+  return [...best.values()];
+}
+
 async function main() {
   console.log("Scanning all theaters…");
   const started = Date.now();
-  const [theaters, prev] = await Promise.all([scanAllTheaters(), fetchPreviousSnapshot()]);
+  const [theaters, prevTheaters] = await Promise.all([scanAllTheaters(), fetchCarryOverSources()]);
 
   // Raw results before carry-over, which masks failures by restoring old data
   for (const t of theaters) {
@@ -47,7 +68,7 @@ async function main() {
     );
   }
 
-  if (prev) applyCarryOver(prev.theaters, theaters);
+  if (prevTheaters.length > 0) applyCarryOver(prevTheaters, theaters);
 
   // One-shot CI runs miss most far-out Cinemark seat maps (the scan only
   // rotates through a handful per pass) — top up whatever is still uncounted
@@ -68,8 +89,9 @@ async function main() {
   writeFileSync(OUT_PATH, JSON.stringify(snapshot));
 
   for (const t of theaters) {
+    const age = t.dataAsOf ? `${Math.round((Date.now() - t.dataAsOf) / 60000)}m old` : "no data";
     console.log(
-      `  ${t.theaterName}: ok=${t.ok} showtimes=${t.showtimes.length}` +
+      `  [published] ${t.theaterName}: ok=${t.ok} showtimes=${t.showtimes.length} data ${age}` +
         (t.engagements?.length ? ` engagements=${t.engagements.length}` : "") +
         (t.error ? ` error="${t.error}"` : ""),
     );
