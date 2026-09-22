@@ -52,15 +52,26 @@ export function applyCarryOver(
       }
     }
 
-    const prevShows = new Map(prevT.showtimes.map((s) => [s.id, s]));
+    // Seat counts: match by id, or by movie + local time so a show that came
+    // back via Fandango this scan (different id) can inherit the count read
+    // from Cinemark's own seat map in a recent scan. Counts expire after a
+    // day; a stale "3 left" is worse than an honest "on sale".
+    const prevShowById = new Map(prevT.showtimes.map((s) => [s.id, s]));
+    const prevShowBySlot = new Map(
+      prevT.showtimes.map((s) => [`${s.movieId}|${s.localDateTime}`, s]),
+    );
+    const seatsCutoff = Date.now() - 24 * 3_600_000;
     for (const s of t.showtimes) {
-      const old = prevShows.get(s.id);
-      if (s.seatsLeft === undefined && old?.seatsLeft !== undefined) {
-        s.seatsLeft = old.seatsLeft;
-        s.seatsTotal = old.seatsTotal;
-        s.accessibleSeatsLeft = old.accessibleSeatsLeft;
-        s.status = old.status;
-      }
+      if (s.seatsLeft !== undefined) continue;
+      const old =
+        prevShowById.get(s.id) ?? prevShowBySlot.get(`${s.movieId}|${s.localDateTime}`);
+      if (old?.seatsLeft === undefined) continue;
+      if (old.seatsCheckedAt === undefined || old.seatsCheckedAt < seatsCutoff) continue;
+      s.seatsLeft = old.seatsLeft;
+      s.seatsTotal = old.seatsTotal;
+      s.accessibleSeatsLeft = old.accessibleSeatsLeft;
+      s.seatsCheckedAt = old.seatsCheckedAt;
+      s.status = old.status;
     }
   }
 }

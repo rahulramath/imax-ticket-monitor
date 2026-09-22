@@ -260,6 +260,11 @@ let farRotation = Math.floor(Math.random() * 997);
 const cinemarkEmptyDates = new Map<string, number>();
 const EMPTY_DATE_RECHECK_MS = 6 * 60 * 60_000;
 
+/** Shows whose ticket link is Cinemark's own seat map (not a Fandango backfill) */
+function hasCinemarkSeatMap(show: Showtime): boolean {
+  return show.ticketUrl.includes("/TicketSeatMap/");
+}
+
 /**
  * Cinemark's seat map page renders every seat server-side as a button with
  * available="True|False" and a seatType. Counting them gives exact
@@ -313,6 +318,7 @@ async function fetchCinemarkSeatCounts(show: Showtime, attempt = 0): Promise<voi
   show.seatsLeft = seatsLeft;
   show.seatsTotal = seatsTotal;
   show.accessibleSeatsLeft = accessibleLeft;
+  show.seatsCheckedAt = Date.now();
   if (seatsLeft === 0 && accessibleLeft === 0) show.status = "sold_out";
   else if (seatsLeft / seatsTotal < 0.15) show.status = "almost_full";
 }
@@ -331,9 +337,10 @@ export async function topUpCinemarkSeatCounts(
 ): Promise<number> {
   const cinemark = theaters.find((t) => t.chain === "cinemark");
   if (!cinemark) return 0;
-  // status "unknown" means the seat map 404'd (sale not open) — skip those.
+  // status "unknown" means the seat map 404'd (sale not open) — skip those,
+  // and Fandango-backfilled shows have no Cinemark seat map to read.
   const missing = cinemark.showtimes
-    .filter((s) => s.seatsLeft === undefined && s.status !== "unknown")
+    .filter((s) => s.seatsLeft === undefined && s.status !== "unknown" && hasCinemarkSeatMap(s))
     .slice(0, budget);
   let fetched = 0;
   for (const s of missing) {
@@ -356,17 +363,33 @@ async function scanCinemark(): Promise<TheaterResult> {
   const errors: string[] = [];
   const failedDates: string[] = [];
 
+  // Fandango runs alongside as a second source: it supplies the date list
+  // and a status/backfill for every show, and it is what keeps Cinemark data
+  // flowing from GitHub's runners, which Cinemark's Cloudflare blocks.
+  const fandango = discoverFandangoDates("cinemark").catch(() => ({
+    dates: [] as string[],
+    entries: new Map<string, FandangoEntry>(),
+  }));
+
   // First fetch discovers the full engagement window from the date carousel
   let dates: string[] = [];
   const today = localDateStr(new Date(), meta.timeZone);
+  let baseFailed = false;
   try {
     const html = await fetchPage(meta.theaterUrl);
     for (const s of parseCinemarkDay(html)) all.set(s.id, s);
     dates = parseCinemarkDates(html).filter((d) => d > today);
   } catch (e) {
+    baseFailed = true;
     errors.push(`base: ${e instanceof Error ? e.message : e}`);
     failedDates.push(today);
-    dates = upcomingDates(14, meta.timeZone).slice(1);
+  }
+
+  const fd = await fandango;
+  if (baseFailed) {
+    dates = fd.dates.length > 0 ? fd.dates.filter((d) => d > today) : upcomingDates(14, meta.timeZone).slice(1);
+  } else {
+    for (const d of fd.dates) if (d > today && !dates.includes(d)) dates.push(d);
   }
 
   // Opening weeks of future tracked releases (premium-format sales open
@@ -375,6 +398,7 @@ async function scanCinemark(): Promise<TheaterResult> {
   for (const d of releaseWindowDates(lastCovered)) {
     if (!dates.includes(d)) dates.push(d);
   }
+  dates.sort();
 
   // Sequential with pacing — Cinemark's Cloudflare rate-limits bursts, and
   // the carousel can span months (special events), so keep requests gentle.
@@ -403,18 +427,40 @@ async function scanCinemark(): Promise<TheaterResult> {
     return null;
   };
 
+  // Blocked detector: when Cinemark's Cloudflare rejects us (datacenter IPs),
+  // every request fails the same way. Give up after a few straight failures
+  // with nothing fetched instead of burning ten minutes on retries.
+  let blocked = false;
+  let straightFailures = baseFailed ? 1 : 0;
   const firstPassFailed: string[] = [];
   for (const date of dates) {
     const lastEmpty = cinemarkEmptyDates.get(date);
     if (lastEmpty && now - lastEmpty < EMPTY_DATE_RECHECK_MS) continue;
-    if ((await fetchDate(date)) !== null) firstPassFailed.push(date);
+    const err = await fetchDate(date);
+    if (err !== null) {
+      firstPassFailed.push(date);
+      if (all.size === 0 && ++straightFailures >= 4) {
+        blocked = true;
+        break;
+      }
+    } else {
+      straightFailures = 0;
+    }
     await sleep(700);
   }
 
-  // Second pass: rate-limit bursts are usually short, so after a cooldown
-  // retry the dates that failed. Whole missing days are the worst failure
-  // mode (especially in CI, where there's no previous scan to fall back on).
-  if (firstPassFailed.length > 0) {
+  if (blocked) {
+    const sample = errors[0] ?? "request failed";
+    errors.length = 0;
+    for (const date of dates) {
+      errors.push(`${date}: blocked`);
+      if (!failedDates.includes(date)) failedDates.push(date);
+    }
+    errors[0] = `Cinemark unreachable from here (${sample})`;
+  } else if (firstPassFailed.length > 0) {
+    // Second pass: rate-limit bursts are usually short, so after a cooldown
+    // retry the dates that failed. Whole missing days are the worst failure
+    // mode (especially in CI, where there's no previous scan to fall back on).
     await sleep(30_000);
     for (const date of firstPassFailed) {
       const err = await fetchDate(date);
@@ -426,6 +472,16 @@ async function scanCinemark(): Promise<TheaterResult> {
     }
   }
 
+  // Sold-out status for shows we couldn't count, plus backfill of anything
+  // Cinemark's pages didn't return (all of it, when blocked). A date Fandango
+  // covered isn't a data gap, so it doesn't count as failed (which would make
+  // carry-over resurrect stale shows next to the current ones).
+  mergeFandango(all, fd.entries, "cinemark");
+  const fdCovered = new Set(fd.dates);
+  const uncoveredFailed = failedDates.filter((d) => !fdCovered.has(d));
+  failedDates.length = 0;
+  failedDates.push(...uncoveredFailed);
+
   const showtimes = [...all.values()].sort((a, b) =>
     a.localDateTime.localeCompare(b.localDateTime),
   );
@@ -434,10 +490,13 @@ async function scanCinemark(): Promise<TheaterResult> {
   // /TicketSeatMap after roughly a dozen rapid hits. With the full
   // engagement window (~120 shows) we can't cover every seat map every
   // scan: prioritize the next 5 days, then rotate through the rest a few
-  // per scan (the monitor carries older counts over between scans).
+  // per scan (the monitor carries older counts over between scans). Only
+  // shows with Cinemark's own seat-map link qualify; Fandango-backfilled
+  // shows have none, and there's no point trying while blocked.
   const seatCutoff = localDateStr(new Date(Date.now() + 5 * 86_400_000), meta.timeZone);
-  const nearShows = showtimes.filter((s) => s.localDate <= seatCutoff);
-  const farShows = showtimes.filter((s) => s.localDate > seatCutoff);
+  const countable = blocked ? [] : showtimes.filter(hasCinemarkSeatMap);
+  const nearShows = countable.filter((s) => s.localDate <= seatCutoff);
+  const farShows = countable.filter((s) => s.localDate > seatCutoff);
   const farBatch =
     farShows.length > 0
       ? Array.from(
@@ -543,10 +602,23 @@ function parseAmcDay(html: string): Showtime[] {
 // Fandango (AMC date discovery + sold-out enrichment)
 // ---------------------------------------------------------------------------
 
-/** Fandango's theater id for AMC Lincoln Square 13 */
-const FANDANGO_THEATER_ID = "AABQI";
-const FANDANGO_THEATER_URL =
-  "https://www.fandango.com/amc-lincoln-square-13-aabqi/theater-page";
+/**
+ * Fandango listings for the tracked theaters. Fandango's JSON API is not
+ * behind a Cloudflare challenge, so it works from GitHub's datacenter IPs
+ * where the chains' own sites don't. It gives showtimes, sold-out status and
+ * a per-show purchase link, but no seat counts.
+ */
+const FANDANGO_THEATERS = {
+  amc: {
+    id: "AABQI",
+    url: "https://www.fandango.com/amc-lincoln-square-13-aabqi/theater-page",
+  },
+  cinemark: {
+    id: "AACBT",
+    url: "https://www.fandango.com/cinemark-dallas-xd-and-imax-aacbt/theater-page",
+  },
+} as const;
+type FandangoVenue = keyof typeof FANDANGO_THEATERS;
 
 interface FandangoShowtime {
   type: string; // "available" | "soldout" | "pastshowtime"
@@ -564,14 +636,15 @@ interface FandangoEntry {
   ticketUrl: string;
 }
 
-async function fetchFandangoDay(date: string): Promise<FandangoEntry[]> {
+async function fetchFandangoDay(venue: FandangoVenue, date: string): Promise<FandangoEntry[]> {
+  const theater = FANDANGO_THEATERS[venue];
   const res = await fetch(
-    `https://www.fandango.com/napi/theaterMovieShowtimes/${FANDANGO_THEATER_ID}?startDate=${date}`,
+    `https://www.fandango.com/napi/theaterMovieShowtimes/${theater.id}?startDate=${date}`,
     {
       headers: {
         "User-Agent": UA,
         Accept: "application/json",
-        Referer: FANDANGO_THEATER_URL,
+        Referer: theater.url,
       },
       signal: AbortSignal.timeout(20_000),
       cache: "no-store",
@@ -611,7 +684,7 @@ async function fetchFandangoDay(date: string): Promise<FandangoEntry[]> {
             localDateTime,
             type: st.type,
             displayTime: st.date.replace(/a$/, " AM").replace(/p$/, " PM"),
-            ticketUrl: st.ticketingJumpPageURL ?? FANDANGO_THEATER_URL,
+            ticketUrl: st.ticketingJumpPageURL ?? theater.url,
           });
         }
       }
@@ -622,11 +695,13 @@ async function fetchFandangoDay(date: string): Promise<FandangoEntry[]> {
 
 /**
  * Probe Fandango (fast, JSON) day by day to find which dates actually have
- * tracked IMAX 70mm shows at AMC, so we only fetch AMC's slow pages for
- * those dates. Stops after a run of empty days.
+ * tracked IMAX 70mm shows at a venue, so we only fetch the chain's slow
+ * pages for those dates. Stops after a run of empty days.
  */
-async function discoverAmcDates(): Promise<{ dates: string[]; entries: Map<string, FandangoEntry> }> {
-  const tz = THEATERS.amc.timeZone;
+async function discoverFandangoDates(
+  venue: FandangoVenue,
+): Promise<{ dates: string[]; entries: Map<string, FandangoEntry> }> {
+  const tz = THEATERS[venue].timeZone;
   const allDates = upcomingDates(MAX_HORIZON_DAYS, tz);
   const dates: string[] = [];
   const entries = new Map<string, FandangoEntry>();
@@ -635,7 +710,7 @@ async function discoverAmcDates(): Promise<{ dates: string[]; entries: Map<strin
   const PROBE_CONCURRENCY = 5;
   outer: for (let i = 0; i < allDates.length; i += PROBE_CONCURRENCY) {
     const batch = allDates.slice(i, i + PROBE_CONCURRENCY);
-    const results = await Promise.allSettled(batch.map((d) => fetchFandangoDay(d)));
+    const results = await Promise.allSettled(batch.map((d) => fetchFandangoDay(venue, d)));
     for (let j = 0; j < results.length; j++) {
       const r = results[j];
       const date = batch[j];
@@ -660,7 +735,7 @@ async function discoverAmcDates(): Promise<{ dates: string[]; entries: Map<strin
   const extra = releaseWindowDates(allDates[allDates.length - 1]);
   for (let i = 0; i < extra.length; i += PROBE_CONCURRENCY) {
     const batch = extra.slice(i, i + PROBE_CONCURRENCY);
-    const results = await Promise.allSettled(batch.map((d) => fetchFandangoDay(d)));
+    const results = await Promise.allSettled(batch.map((d) => fetchFandangoDay(venue, d)));
     for (let j = 0; j < results.length; j++) {
       const r = results[j];
       const date = batch[j];
@@ -675,6 +750,43 @@ async function discoverAmcDates(): Promise<{ dates: string[]; entries: Map<strin
   return { dates, entries };
 }
 
+/**
+ * Merge Fandango data into a chain's own showtimes: mark sold-out shows
+ * (unless we hold an exact seat count, which is authoritative) and backfill
+ * shows the chain's pages didn't return, whether because they hide sold-out
+ * shows, because far-future dates were skipped, or because the chain's site
+ * blocked us entirely.
+ */
+function mergeFandango(
+  all: Map<string, Showtime>,
+  fdEntries: Map<string, FandangoEntry>,
+  idPrefix: string,
+): void {
+  const byKey = new Map<string, Showtime>();
+  for (const s of all.values()) byKey.set(`${s.movieId}|${s.localDateTime.slice(0, 16)}`, s);
+  for (const [key, entry] of fdEntries) {
+    const existing = byKey.get(key);
+    if (existing) {
+      if (entry.type === "soldout" && existing.seatsLeft === undefined) {
+        existing.status = "sold_out";
+      }
+      continue;
+    }
+    if (entry.type !== "soldout" && entry.type !== "available") continue;
+    const id = `${idPrefix}-fd-${key.replace(/[|:]/g, "-")}`;
+    all.set(id, {
+      id,
+      movieId: entry.movieId,
+      localDate: entry.localDateTime.slice(0, 10),
+      localDateTime: `${entry.localDateTime}:00`,
+      displayTime: entry.displayTime,
+      status: entry.type === "soldout" ? "sold_out" : "available",
+      ticketUrl: entry.ticketUrl,
+      format: "IMAX 70mm",
+    });
+  }
+}
+
 async function scanAmc(): Promise<TheaterResult> {
   const meta = THEATERS.amc;
   const all = new Map<string, Showtime>();
@@ -683,7 +795,7 @@ async function scanAmc(): Promise<TheaterResult> {
   let dates: string[];
   let fdEntries = new Map<string, FandangoEntry>();
   try {
-    ({ dates, entries: fdEntries } = await discoverAmcDates());
+    ({ dates, entries: fdEntries } = await discoverFandangoDates("amc"));
   } catch {
     dates = [];
   }
@@ -725,30 +837,14 @@ async function scanAmc(): Promise<TheaterResult> {
     }
   }
 
-  // Merge Fandango data: mark sold-out shows, and backfill any show AMC's
-  // own pages didn't return (sold-out shows AMC hides, plus far-future
-  // release-window shows where we skip AMC's slow pages entirely).
-  const byKey = new Map<string, Showtime>();
-  for (const s of all.values()) byKey.set(`${s.movieId}|${s.localDateTime.slice(0, 16)}`, s);
-  for (const [key, entry] of fdEntries) {
-    const existing = byKey.get(key);
-    if (existing) {
-      if (entry.type === "soldout") existing.status = "sold_out";
-      continue;
-    }
-    if (entry.type !== "soldout" && entry.type !== "available") continue;
-    const id = `amc-fd-${key.replace(/[|:]/g, "-")}`;
-    all.set(id, {
-      id,
-      movieId: entry.movieId,
-      localDate: entry.localDateTime.slice(0, 10),
-      localDateTime: `${entry.localDateTime}:00`,
-      displayTime: entry.displayTime,
-      status: entry.type === "soldout" ? "sold_out" : "available",
-      ticketUrl: entry.ticketUrl,
-      format: "IMAX 70mm",
-    });
-  }
+  // Sold-out status plus backfill of shows AMC's pages didn't return (sold-out
+  // shows AMC hides, far-future release-window dates, or everything when AMC's
+  // Cloudflare challenge blocks us).
+  mergeFandango(all, fdEntries, "amc");
+  const fdCoveredDates = new Set([...fdEntries.values()].map((e) => e.localDateTime.slice(0, 10)));
+  const uncoveredFailed = failedDates.filter((d) => !fdCoveredDates.has(d));
+  failedDates.length = 0;
+  failedDates.push(...uncoveredFailed);
 
   const showtimes = [...all.values()].sort((a, b) =>
     a.localDateTime.localeCompare(b.localDateTime),

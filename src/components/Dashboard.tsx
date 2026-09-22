@@ -412,8 +412,8 @@ export function Dashboard() {
             <span className="mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full bg-[#3558b8]" />
             <span>
               <span className="font-semibold text-foreground">Cinemark Dallas XD and IMAX</span>
-              {" "}· IMAX 70mm film, 1.43:1. Exact seats left, read from each
-              showtime&apos;s seat map.
+              {" "}· IMAX 70mm film, 1.43:1. Exact seats left whenever Cinemark lets us
+              read its seat maps, otherwise on sale or sold out.
             </span>
           </li>
           <li className="flex gap-2.5">
