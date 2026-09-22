@@ -455,8 +455,10 @@ async function scanCinemark(): Promise<TheaterResult> {
   return {
     ...metaToResult(meta),
     showtimes,
-    ok: errors.length === 0 || showtimes.length > 0 || errors.length < dates.length + 1,
-    error: errors.length > 0 ? `${errors.length} request(s) failed` : undefined,
+    // Failed only if nothing came back and every date request failed
+    ok: errors.length === 0 || showtimes.length > 0 || errors.length < dates.length,
+    error:
+      errors.length > 0 ? `${errors.length} request(s) failed, e.g. ${errors[0]}` : undefined,
     failedDates,
   };
 }
@@ -756,7 +758,10 @@ async function scanAmc(): Promise<TheaterResult> {
     ...metaToResult(meta),
     showtimes,
     ok: errors.length < dates.length,
-    error: errors.length >= dates.length ? errors[0] : undefined,
+    error:
+      errors.length > 0
+        ? `${errors.length}/${dates.length} date(s) failed, e.g. ${errors[0]}`
+        : undefined,
     failedDates,
   };
 }

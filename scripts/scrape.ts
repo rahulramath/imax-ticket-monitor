@@ -37,6 +37,16 @@ async function main() {
   console.log("Scanning all theaters…");
   const started = Date.now();
   const [theaters, prev] = await Promise.all([scanAllTheaters(), fetchPreviousSnapshot()]);
+
+  // Raw results before carry-over, which masks failures by restoring old data
+  for (const t of theaters) {
+    console.log(
+      `  [raw] ${t.theaterName}: ok=${t.ok} showtimes=${t.showtimes.length}` +
+        ` failedDates=${t.failedDates?.length ?? 0}` +
+        (t.error ? `\n        error: ${t.error}` : ""),
+    );
+  }
+
   if (prev) applyCarryOver(prev.theaters, theaters);
 
   // One-shot CI runs miss most far-out Cinemark seat maps (the scan only
