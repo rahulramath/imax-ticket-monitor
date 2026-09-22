@@ -64,6 +64,9 @@ jobs:
         # deployed snapshot fills any gaps from rate-limited requests.
         env:
           PREV_SNAPSHOT_URL: https://rahulramath.github.io/imax-ticket-monitor/data/snapshot.json
+          # Feed scraped from a home connection (scripts/publish-snapshot.ts);
+          # Cloudflare blocks Cinemark/AMC for GitHub's datacenter IPs.
+          LOCAL_SNAPSHOT_URL: https://raw.githubusercontent.com/rahulramath/imax-ticket-monitor/data/snapshot.json
         run: npm run scrape
 
       - name: Build static site
