@@ -380,6 +380,13 @@ export function TheaterCard({
                 )}
               </p>
             )}
+            {theater.chain === "cinemark" && !hasSeatCounts && showtimes.length > 0 && (
+              <p className="text-xs leading-relaxed text-muted">
+                Showtimes and sold-out status come from Fandango. Exact seat counts need
+                Cinemark&apos;s own seat maps, which Cinemark isn&apos;t serving to our servers
+                right now; they return automatically whenever it does.
+              </p>
+            )}
             {theater.chain === "amc" && (
               <p className="text-xs leading-relaxed text-muted">
                 *AMC doesn&apos;t share seat numbers, and their labels run optimistic:

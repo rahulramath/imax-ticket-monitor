@@ -22,6 +22,9 @@ export interface Showtime {
   seatsTotal?: number;
   /** Accessible (wheelchair/companion) seats remaining (Cinemark only) */
   accessibleSeatsLeft?: number;
+  /** When the seat counts above were read; counts older than a day are not
+   *  carried over between scans */
+  seatsCheckedAt?: number;
 }
 
 /**
