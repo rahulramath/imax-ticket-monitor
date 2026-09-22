@@ -76,11 +76,17 @@ scripts/install-local-refresh.sh --uninstall
 ```
 
 It's a launchd agent (`com.rahulramath.imax-monitor`) that runs
-`scripts/local-refresh.sh`, i.e. `npm run scrape && npm run publish-snapshot`.
-If the Mac is asleep when a run is due, it runs once on wake. Logs land in
-`~/Library/Logs/imax-monitor.log`. Publishing authenticates with the `gh` CLI
-token for the `rahulramath` account explicitly (`GH_USER` to override), so a
-work account being the active `gh` login doesn't break it.
+`scripts/local-refresh.sh` (`npm run scrape && npm run publish-snapshot`) from
+its own checkout at `~/.imax-monitor`, kept in sync with `origin/main` on each
+run. It doesn't run from your working copy because macOS blocks background
+jobs from reading `~/Documents`, and so that half-finished edits can't break
+the hourly run. If the Mac is asleep when a run is due, it runs once on wake.
+Logs land in `~/Library/Logs/imax-monitor.log`.
+
+The installer saves the `gh` CLI token for the `rahulramath` account
+(`GH_USER` to override) to `~/.config/imax-monitor/token` (mode 600), so
+publishing works regardless of which `gh` account is active and without
+Keychain prompts. `--uninstall` removes the agent and the token file.
 
 ### Live server (full features)
 
