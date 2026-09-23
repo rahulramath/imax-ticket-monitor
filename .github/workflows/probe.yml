@@ -14,6 +14,13 @@ on:
 
 jobs:
   fandango-seat-map:
+    # Several runners (= several IPs) per mode, to measure a pass rate rather
+    # than a single lucky or unlucky sample.
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [headless, headed]
+        attempt: [1, 2, 3]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -23,7 +30,12 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: Chrome version on this runner
-        run: google-chrome --version
-      - name: Probe Fandango seat map
-        run: node scripts/probe-fandango-seats.mjs "${{ inputs.jump_url }}" ${{ inputs.showtime_ids }}
+      - name: Probe Fandango seat map (${{ matrix.mode }} #${{ matrix.attempt }})
+        env:
+          PROBE_HEADED: ${{ matrix.mode == 'headed' && '1' || '0' }}
+        run: |
+          if [ "$PROBE_HEADED" = "1" ]; then
+            xvfb-run -a node scripts/probe-fandango-seats.mjs "${{ inputs.jump_url }}" ${{ inputs.showtime_ids }}
+          else
+            node scripts/probe-fandango-seats.mjs "${{ inputs.jump_url }}" ${{ inputs.showtime_ids }}
+          fi
