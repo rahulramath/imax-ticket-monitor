@@ -18,11 +18,15 @@ if (!jump) {
   process.exit(2);
 }
 const t0 = Date.now();
+// PROBE_HEADED=1 runs a visible Chrome (under xvfb on CI), which hides the
+// remaining headless tells from bot-defense telemetry.
+const headless = process.env.PROBE_HEADED !== "1";
 const browser = await chromium.launch({
   channel: "chrome",
-  headless: true,
-  args: ["--disable-blink-features=AutomationControlled"],
+  headless,
+  args: ["--disable-blink-features=AutomationControlled", "--window-size=1366,900"],
 });
+console.log("mode:", headless ? "headless" : "headed");
 const realUa = (
   await (async () => {
     const c = await browser.newContext();
