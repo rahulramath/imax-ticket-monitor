@@ -191,170 +191,97 @@ async function fetchPage(url: string): Promise<string> {
 
 // ---------------------------------------------------------------------------
 // Cinemark
+//
+// Cinemark's site is Cloudflare-challenged for datacenter IPs (HTML pages and
+// the /TicketSeatMap/ page alike), but its JSON layer under /papi/ is not, and
+// /papi/theaters/{id}/showtimes?date=YYYY-MM-DD returns every showtime with
+// exact `seatsAvailable` / `totalSeats`. One request per date gives showtimes
+// and seat counts together; no seat-map crawling.
 // ---------------------------------------------------------------------------
 
-interface CinemarkShowtimeJson {
-  showtimeId: number;
-  showTime: string; // theater-local ISO, e.g. "2026-07-28T07:45:00"
-  showTimeUrl: string; // query string for /TicketSeatMap/
-  displayShowTime: string;
+/** Cinemark's numeric theater id (from the /TicketSeatMap/ URLs) */
+const CINEMARK_THEATER_ID = 207;
+
+interface PapiShowtime {
+  id: number;
+  /** Theater-local time with a misleading "Z" suffix, e.g. "2026-09-25T08:00:00.000Z" */
+  startTime: string;
+  seatsAvailable: number;
+  totalSeats: number;
+  status: number;
 }
 
-interface CinemarkModelJson {
-  cinemarkMovieId: number;
-  movieTitle: string;
-  showTimes?: CinemarkShowtimeJson[];
+interface PapiMovie {
+  movieTitle?: string;
+  cinemarkMovieId?: number;
+  showtimesByPrintType?: { printTypeName?: string; showtimes?: PapiShowtime[] }[];
 }
 
-/**
- * Cinemark lists IMAX 70mm engagements as separate "movies" with titles like
- * "The Odyssey IMAX 70MM". Match tracked movies whose title also mentions 70mm.
- */
-function parseCinemarkDay(html: string): Showtime[] {
-  const shows = new Map<string, Showtime>();
-  const modelRe = /data-json-model="([^"]+)"/g;
-  let m: RegExpExecArray | null;
-  while ((m = modelRe.exec(html)) !== null) {
-    let model: CinemarkModelJson;
-    try {
-      model = JSON.parse(decodeEntities(m[1]));
-    } catch {
-      continue;
-    }
-    const title = model.movieTitle ?? "";
-    if (!/70\s*mm/i.test(title)) continue;
-    const movie = matchMovie(title);
-    if (!movie) continue;
-    for (const st of model.showTimes ?? []) {
-      const id = `cinemark-${st.showtimeId}`;
-      if (shows.has(id)) continue;
-      shows.set(id, {
-        id,
-        movieId: movie.id,
-        localDate: st.showTime.slice(0, 10),
-        localDateTime: st.showTime,
-        displayTime: st.displayShowTime,
-        status: "available",
-        ticketUrl: `${CINEMARK_BASE}/TicketSeatMap/${decodeEntities(st.showTimeUrl)}`,
-        format: "IMAX 70mm",
-      });
-    }
-  }
-  return [...shows.values()];
-}
-
-/** Available dates from the theater page's date carousel */
-function parseCinemarkDates(html: string): string[] {
-  const dates = new Set<string>(
-    [...html.matchAll(/data-datevalue="(20\d\d-\d\d-\d\d)"/g)].map((m) => m[1]),
+/** curl, like fetchViaCurl, but for JSON: no minimum body length */
+async function fetchCinemarkJson<T>(url: string): Promise<T> {
+  const { stdout } = await execFileAsync(
+    "curl",
+    ["-s", "--compressed", "-m", "45", "-w", "\n%{http_code}", "-A", UA, "-H", "Accept: application/json", url],
+    { maxBuffer: 40 * 1024 * 1024, timeout: 50_000 },
   );
-  return [...dates].sort();
-}
-
-/** Circuit breaker: after a 429, skip seat maps until this timestamp. */
-let seatMapCooldownUntil = 0;
-/** Rotation cursor for far-out seat map refreshes. Random start so fresh
- *  processes (hourly CI runs) don't always re-fetch the same batch. */
-let farRotation = Math.floor(Math.random() * 997);
-/** Dates confirmed to have no tracked shows → recheck at most every 6h */
-const cinemarkEmptyDates = new Map<string, number>();
-const EMPTY_DATE_RECHECK_MS = 6 * 60 * 60_000;
-
-/** Shows whose ticket link is Cinemark's own seat map (not a Fandango backfill) */
-function hasCinemarkSeatMap(show: Showtime): boolean {
-  return show.ticketUrl.includes("/TicketSeatMap/");
-}
-
-/**
- * Cinemark's seat map page renders every seat server-side as a button with
- * available="True|False" and a seatType. Counting them gives exact
- * remaining-seat numbers per showtime.
- */
-async function fetchCinemarkSeatCounts(show: Showtime, attempt = 0): Promise<void> {
-  let html: string;
+  const cut = stdout.lastIndexOf("\n");
+  const status = Number(stdout.slice(cut + 1));
+  const body = stdout.slice(0, cut);
+  if (status === 429 || (status === 403 && body.includes("Just a moment"))) {
+    throw new RateLimitError(`Rate limited (${status}) for ${url}`);
+  }
+  if (status !== 200) throw new Error(`HTTP ${status} for ${url}`);
   try {
-    html = await fetchPage(show.ticketUrl);
-  } catch (e) {
-    // Cinemark lists showtimes before their seat map / purchase page goes
-    // live; those return a hard 404. Flag them as "not on sale yet".
-    if (e instanceof Error && e.message.startsWith("HTTP 404")) {
-      show.status = "unknown";
-      return;
-    }
-    // Cloudflare rate limit: give up immediately and cool down; previous
-    // scan's seat counts are carried over by the monitor.
-    if (e instanceof RateLimitError) {
-      seatMapCooldownUntil = Date.now() + 10 * 60_000;
-      console.error(`[cinemark seats] rate limited — cooling down 10 min`);
-      throw e;
-    }
-    if (attempt < 2) {
-      await sleep(2_000 * (attempt + 1));
-      return fetchCinemarkSeatCounts(show, attempt + 1);
-    }
-    console.error(`[cinemark seats] ${show.id} failed:`, e instanceof Error ? e.message : e);
-    throw e;
+    return JSON.parse(body) as T;
+  } catch {
+    throw new Error(`Non-JSON response (len ${body.length}) for ${url}`);
   }
-  const buttons = [...html.matchAll(/<button available="(True|False)"[^>]*seatType="(\w+)"/g)];
-  if (buttons.length === 0) {
-    if (attempt < 2) {
-      await sleep(2_000 * (attempt + 1));
-      return fetchCinemarkSeatCounts(show, attempt + 1);
-    }
-    console.error(`[cinemark seats] ${show.id}: no seat buttons in response (len ${html.length})`);
-    return;
-  }
-  let seatsLeft = 0;
-  let seatsTotal = 0;
-  let accessibleLeft = 0;
-  for (const [, avail, type] of buttons) {
-    if (type === "seat") {
-      seatsTotal++;
-      if (avail === "True") seatsLeft++;
-    } else if (avail === "True") {
-      accessibleLeft++;
-    }
-  }
-  show.seatsLeft = seatsLeft;
-  show.seatsTotal = seatsTotal;
-  show.accessibleSeatsLeft = accessibleLeft;
-  show.seatsCheckedAt = Date.now();
-  if (seatsLeft === 0 && accessibleLeft === 0) show.status = "sold_out";
-  else if (seatsLeft / seatsTotal < 0.15) show.status = "almost_full";
 }
 
-/**
- * Fetch seat maps for Cinemark shows that still have no seat count, earliest
- * date first, up to `budget` shows. The regular scan only covers the next few
- * days plus a small rotating batch of far-out shows, which is fine for the
- * long-running local server but leaves big gaps on one-shot CI runs — the CI
- * scrape calls this after carrying over the previous deploy's counts so
- * coverage converges within a run or two. Stops early if rate limited.
- */
-export async function topUpCinemarkSeatCounts(
-  theaters: TheaterResult[],
-  budget = 60,
-): Promise<number> {
-  const cinemark = theaters.find((t) => t.chain === "cinemark");
-  if (!cinemark) return 0;
-  // status "unknown" means the seat map 404'd (sale not open) — skip those,
-  // and Fandango-backfilled shows have no Cinemark seat map to read.
-  const missing = cinemark.showtimes
-    .filter((s) => s.seatsLeft === undefined && s.status !== "unknown" && hasCinemarkSeatMap(s))
-    .slice(0, budget);
-  let fetched = 0;
-  for (const s of missing) {
-    if (Date.now() < seatMapCooldownUntil) break;
-    try {
-      await fetchCinemarkSeatCounts(s);
-      if (s.seatsLeft !== undefined) fetched++;
-    } catch {
-      // rate limit sets the cooldown and the loop exits above; other
-      // failures were already retried/logged inside the fetch
+function formatTime12(hh: number, mm: number): string {
+  const suffix = hh >= 12 ? "PM" : "AM";
+  const h = hh % 12 === 0 ? 12 : hh % 12;
+  return `${h}:${String(mm).padStart(2, "0")} ${suffix}`;
+}
+
+function parseCinemarkPapi(movies: PapiMovie[]): Showtime[] {
+  const out: Showtime[] = [];
+  const now = Date.now();
+  for (const movie of movies) {
+    const title = movie.movieTitle ?? "";
+    const tracked = matchMovie(title);
+    if (!tracked) continue;
+    for (const pt of movie.showtimesByPrintType ?? []) {
+      const print = pt.printTypeName ?? "";
+      const isImax70 =
+        /imax/i.test(`${print} ${title}`) && /70\s*mm/i.test(`${print} ${title}`);
+      if (!isImax70) continue;
+      for (const st of pt.showtimes ?? []) {
+        const localDateTime = st.startTime.replace(/(\.\d+)?Z$/, "");
+        const [hh, mm] = localDateTime.slice(11, 16).split(":").map(Number);
+        const left = Math.max(0, st.seatsAvailable ?? 0);
+        const total = st.totalSeats ?? 0;
+        const status: ShowtimeStatus =
+          left === 0 ? "sold_out" : total > 0 && left / total < 0.15 ? "almost_full" : "available";
+        out.push({
+          id: `cinemark-${st.id}`,
+          movieId: tracked.id,
+          localDate: localDateTime.slice(0, 10),
+          localDateTime,
+          displayTime: formatTime12(hh, mm),
+          status,
+          ticketUrl:
+            `${CINEMARK_BASE}/TicketSeatMap/?TheaterId=${CINEMARK_THEATER_ID}` +
+            `&ShowtimeId=${st.id}&CinemarkMovieId=${movie.cinemarkMovieId ?? ""}&Showtime=${localDateTime}`,
+          format: "IMAX 70mm",
+          seatsLeft: left,
+          seatsTotal: total,
+          seatsCheckedAt: now,
+        });
+      }
     }
-    await sleep(6_000);
   }
-  return fetched;
+  return out;
 }
 
 async function scanCinemark(): Promise<TheaterResult> {
@@ -362,120 +289,50 @@ async function scanCinemark(): Promise<TheaterResult> {
   const all = new Map<string, Showtime>();
   const errors: string[] = [];
   const failedDates: string[] = [];
+  const today = localDateStr(new Date(), meta.timeZone);
 
-  // Fandango runs alongside as a second source: it supplies the date list
-  // and a status/backfill for every show, and it is what keeps Cinemark data
-  // flowing from GitHub's runners, which Cinemark's Cloudflare blocks.
-  const fandango = discoverFandangoDates("cinemark").catch(() => ({
+  // Fandango supplies the date list cheaply and backfills showtimes (without
+  // counts) if Cinemark's API ever fails.
+  const fd = await discoverFandangoDates("cinemark").catch(() => ({
     dates: [] as string[],
     entries: new Map<string, FandangoEntry>(),
   }));
-
-  // First fetch discovers the full engagement window from the date carousel
-  let dates: string[] = [];
-  const today = localDateStr(new Date(), meta.timeZone);
-  let baseFailed = false;
-  try {
-    const html = await fetchPage(meta.theaterUrl);
-    for (const s of parseCinemarkDay(html)) all.set(s.id, s);
-    dates = parseCinemarkDates(html).filter((d) => d > today);
-  } catch (e) {
-    baseFailed = true;
-    errors.push(`base: ${e instanceof Error ? e.message : e}`);
-    failedDates.push(today);
-  }
-
-  const fd = await fandango;
-  if (baseFailed) {
-    dates = fd.dates.length > 0 ? fd.dates.filter((d) => d > today) : upcomingDates(14, meta.timeZone).slice(1);
-  } else {
-    for (const d of fd.dates) if (d > today && !dates.includes(d)) dates.push(d);
-  }
-
+  const dateSet = new Set<string>([today, ...fd.dates.filter((d) => d >= today)]);
+  if (dateSet.size <= 1) for (const d of upcomingDates(14, meta.timeZone)) dateSet.add(d);
   // Opening weeks of future tracked releases (premium-format sales open
-  // months ahead; the carousel won't include those dates until closer in)
-  const lastCovered = dates[dates.length - 1] ?? today;
-  for (const d of releaseWindowDates(lastCovered)) {
-    if (!dates.includes(d)) dates.push(d);
-  }
-  dates.sort();
+  // months ahead)
+  const lastCovered = [...dateSet].sort().pop() ?? today;
+  for (const d of releaseWindowDates(lastCovered)) dateSet.add(d);
+  const dates = [...dateSet].sort();
 
-  // Sequential with pacing — Cinemark's Cloudflare rate-limits bursts, and
-  // the carousel can span months (special events), so keep requests gentle.
-  // Dates that had no tracked shows are re-checked at most every 6h.
-  const now = Date.now();
-  // Returns null on success, or the error message for this date
-  const fetchDate = async (date: string): Promise<string | null> => {
-    let found: Showtime[] | null = null;
-    for (let attempt = 0; attempt < 2 && found === null; attempt++) {
-      try {
-        const html = await fetchPage(`${meta.theaterUrl}?showDate=${date}`);
-        found = parseCinemarkDay(html);
-      } catch (e) {
-        if (e instanceof RateLimitError && attempt === 0) {
-          await sleep(8_000);
-          continue;
-        }
-        return e instanceof Error ? e.message : String(e);
-      }
-    }
-    if (found !== null) {
-      if (found.length === 0) cinemarkEmptyDates.set(date, now);
-      else cinemarkEmptyDates.delete(date);
-      for (const s of found) all.set(s.id, s);
-    }
-    return null;
-  };
-
-  // Blocked detector: when Cinemark's Cloudflare rejects us (datacenter IPs),
-  // every request fails the same way. Give up after a few straight failures
-  // with nothing fetched instead of burning ten minutes on retries.
-  let blocked = false;
-  let straightFailures = baseFailed ? 1 : 0;
-  const firstPassFailed: string[] = [];
+  // Blocked detector: if the first few requests all fail with nothing fetched,
+  // stop rather than grinding through every date.
+  let straightFailures = 0;
   for (const date of dates) {
-    const lastEmpty = cinemarkEmptyDates.get(date);
-    if (lastEmpty && now - lastEmpty < EMPTY_DATE_RECHECK_MS) continue;
-    const err = await fetchDate(date);
-    if (err !== null) {
-      firstPassFailed.push(date);
+    try {
+      const movies = await fetchCinemarkJson<PapiMovie[]>(
+        `${CINEMARK_BASE}/papi/theaters/${CINEMARK_THEATER_ID}/showtimes?date=${date}`,
+      );
+      for (const s of parseCinemarkPapi(Array.isArray(movies) ? movies : [])) all.set(s.id, s);
+      straightFailures = 0;
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      errors.push(`${date}: ${msg}`);
+      failedDates.push(date);
       if (all.size === 0 && ++straightFailures >= 4) {
-        blocked = true;
+        for (const rest of dates.slice(dates.indexOf(date) + 1)) {
+          errors.push(`${rest}: skipped`);
+          failedDates.push(rest);
+        }
+        errors[0] = `Cinemark unreachable from here (${errors[0]})`;
         break;
       }
-    } else {
-      straightFailures = 0;
     }
-    await sleep(700);
+    await sleep(300);
   }
 
-  if (blocked) {
-    const sample = errors[0] ?? "request failed";
-    errors.length = 0;
-    for (const date of dates) {
-      errors.push(`${date}: blocked`);
-      if (!failedDates.includes(date)) failedDates.push(date);
-    }
-    errors[0] = `Cinemark unreachable from here (${sample})`;
-  } else if (firstPassFailed.length > 0) {
-    // Second pass: rate-limit bursts are usually short, so after a cooldown
-    // retry the dates that failed. Whole missing days are the worst failure
-    // mode (especially in CI, where there's no previous scan to fall back on).
-    await sleep(30_000);
-    for (const date of firstPassFailed) {
-      const err = await fetchDate(date);
-      if (err !== null) {
-        errors.push(`${date}: ${err}`);
-        failedDates.push(date);
-      }
-      await sleep(1_500);
-    }
-  }
-
-  // Sold-out status for shows we couldn't count, plus backfill of anything
-  // Cinemark's pages didn't return (all of it, when blocked). A date Fandango
-  // covered isn't a data gap, so it doesn't count as failed (which would make
-  // carry-over resurrect stale shows next to the current ones).
+  // Sold-out status for anything without a count, plus backfill of anything
+  // Cinemark's API didn't return. A date Fandango covered isn't a data gap.
   mergeFandango(all, fd.entries, "cinemark");
   const fdCovered = new Set(fd.dates);
   const uncoveredFailed = failedDates.filter((d) => !fdCovered.has(d));
@@ -486,35 +343,9 @@ async function scanCinemark(): Promise<TheaterResult> {
     a.localDateTime.localeCompare(b.localDateTime),
   );
 
-  // Seat maps: one at a time with a generous gap — Cloudflare 429s
-  // /TicketSeatMap after roughly a dozen rapid hits. With the full
-  // engagement window (~120 shows) we can't cover every seat map every
-  // scan: prioritize the next 5 days, then rotate through the rest a few
-  // per scan (the monitor carries older counts over between scans). Only
-  // shows with Cinemark's own seat-map link qualify; Fandango-backfilled
-  // shows have none, and there's no point trying while blocked.
-  const seatCutoff = localDateStr(new Date(Date.now() + 5 * 86_400_000), meta.timeZone);
-  const countable = blocked ? [] : showtimes.filter(hasCinemarkSeatMap);
-  const nearShows = countable.filter((s) => s.localDate <= seatCutoff);
-  const farShows = countable.filter((s) => s.localDate > seatCutoff);
-  const farBatch =
-    farShows.length > 0
-      ? Array.from(
-          { length: Math.min(6, farShows.length) },
-          (_, i) => farShows[(farRotation + i) % farShows.length],
-        )
-      : [];
-  farRotation += farBatch.length;
-  for (const s of [...nearShows, ...farBatch]) {
-    if (Date.now() < seatMapCooldownUntil) break;
-    await Promise.allSettled([fetchCinemarkSeatCounts(s)]);
-    await sleep(6_000);
-  }
-
   return {
     ...metaToResult(meta),
     showtimes,
-    // Failed only if nothing came back and every date request failed
     ok: errors.length === 0 || showtimes.length > 0 || errors.length < dates.length,
     error:
       errors.length > 0 ? `${errors.length} request(s) failed, e.g. ${errors[0]}` : undefined,

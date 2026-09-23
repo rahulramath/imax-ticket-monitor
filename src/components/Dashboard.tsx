@@ -412,8 +412,7 @@ export function Dashboard() {
             <span className="mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full bg-[#3558b8]" />
             <span>
               <span className="font-semibold text-foreground">Cinemark Dallas XD and IMAX</span>
-              {" "}· IMAX 70mm film, 1.43:1. Exact seats left whenever Cinemark lets us
-              read its seat maps, otherwise on sale or sold out.
+              {" "}· IMAX 70mm film, 1.43:1. Exact seats left for every showtime.
             </span>
           </li>
           <li className="flex gap-2.5">
@@ -581,10 +580,6 @@ export function Dashboard() {
         <span className="inline-flex items-center gap-1.5">
           <span className="inline-block h-3 w-6 rounded border border-warning-border bg-warning-soft" />
           10 or fewer, or AMC&apos;s &ldquo;almost full*&rdquo;
-        </span>
-        <span className="inline-flex items-center gap-1.5">
-          <span className="inline-block h-3 w-6 rounded border border-negative/40 bg-negative-soft" />
-          Accessible seats only
         </span>
         <span className="inline-flex items-center gap-1.5">
           <span className="text-muted line-through">7:00 PM</span>
