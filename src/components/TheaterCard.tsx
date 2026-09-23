@@ -367,9 +367,8 @@ export function TheaterCard({
             )}
             {theater.chain === "cinemark" && hasSeatCounts && (
               <p className="text-xs leading-relaxed text-muted">
-                Counts are read from Cinemark&apos;s live seat maps. Green means more than 10
-                seats, yellow means 10 or fewer, and red means only wheelchair and companion
-                seats remain.
+                Counts come straight from Cinemark&apos;s showtime feed. Green means more than
+                10 seats left, yellow means 10 or fewer.
                 {uncountedOnSale > 0 && (
                   <>
                     {" "}
@@ -382,9 +381,9 @@ export function TheaterCard({
             )}
             {theater.chain === "cinemark" && !hasSeatCounts && showtimes.length > 0 && (
               <p className="text-xs leading-relaxed text-muted">
-                Showtimes and sold-out status come from Fandango. Exact seat counts need
-                Cinemark&apos;s own seat maps, which Cinemark isn&apos;t serving to our servers
-                right now; they return automatically whenever it does.
+                Showtimes and sold-out status come from Fandango. Cinemark&apos;s showtime
+                feed, which carries the exact seat counts, didn&apos;t answer on the last
+                check; counts return automatically when it does.
               </p>
             )}
             {theater.chain === "amc" && (
