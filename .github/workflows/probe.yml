@@ -1,0 +1,29 @@
+name: Probe (manual diagnostics)
+
+# Run by hand from the Actions tab to check what GitHub's runners can reach.
+on:
+  workflow_dispatch:
+    inputs:
+      jump_url:
+        description: "Fandango ticketingJumpPageURL for one showtime"
+        required: true
+      showtime_ids:
+        description: "Further Fandango showtime ids to fetch via the seat-map API (space separated)"
+        required: false
+        default: ""
+
+jobs:
+  fandango-seat-map:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Chrome version on this runner
+        run: google-chrome --version
+      - name: Probe Fandango seat map
+        run: node scripts/probe-fandango-seats.mjs "${{ inputs.jump_url }}" ${{ inputs.showtime_ids }}
