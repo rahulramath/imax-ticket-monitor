@@ -37,11 +37,13 @@ const page = await ctx.newPage();
 
 let auth = null;
 let sid = null;
+let browserHeaders = null;
 const first = new Promise((resolve) => {
   page.on("request", (req) => {
     if (req.url().includes("/seat-map")) {
       auth = req.headers()["authorization"] ?? null;
       sid = req.headers()["x-fd-sessionid"] ?? null;
+      browserHeaders = req.headers();
     }
   });
   page.on("response", async (res) => {
@@ -57,27 +59,41 @@ const first = new Promise((resolve) => {
 });
 await page.goto(jump, { waitUntil: "domcontentloaded" });
 console.log("first seat-map:", await first, `(${Math.round((Date.now() - t0) / 1000)}s)`, "token?", !!auth, "sid?", !!sid);
+if (browserHeaders) {
+  const shown = Object.fromEntries(
+    Object.entries(browserHeaders).map(([k, v]) => [k, k === "cookie" || k === "authorization" ? `<${v.length} chars>` : v]),
+  );
+  console.log("browser request headers:", JSON.stringify(shown));
+}
 
+// Further showtimes: call the API from inside the page via XMLHttpRequest.
+// Fandango's bot-defense script hooks XHR (not fetch) to attach fresh signed
+// telemetry headers to every request; without them a datacenter IP is bounced.
 for (const id of otherIds) {
   const t1 = Date.now();
   const r = await page.evaluate(
-    async ({ id, auth, sid }) => {
-      const res = await fetch(`/checkoutapi/showtimes/v2/${id}/seat-map`, {
-        headers: {
-          Accept: "application/json, text/javascript, */*; q=0.01",
-          Authorization: auth,
-          "X-FD-SessionId": sid,
-          "X-Requested-With": "XMLHttpRequest",
-        },
-        redirect: "manual",
-      });
-      if (!res.ok) return { status: res.status };
-      const d = (await res.json()).data;
-      const seats = d?.seats ?? [];
-      const c = {};
-      for (const s of seats) c[`${s.type}:${s.status}`] = (c[`${s.type}:${s.status}`] ?? 0) + 1;
-      return { status: res.status, seats: seats.length, breakdown: c };
-    },
+    ({ id, auth, sid }) =>
+      new Promise((resolve) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open("GET", `/checkoutapi/showtimes/v2/${id}/seat-map`, true);
+        xhr.setRequestHeader("Accept", "application/json, text/javascript, */*; q=0.01");
+        xhr.setRequestHeader("X-Requested-With", "XMLHttpRequest");
+        if (auth) xhr.setRequestHeader("Authorization", auth);
+        if (sid) xhr.setRequestHeader("X-FD-SessionId", sid);
+        xhr.onerror = () => resolve({ status: xhr.status, error: "network" });
+        xhr.onload = () => {
+          if (xhr.status !== 200) return resolve({ status: xhr.status, finalUrl: xhr.responseURL });
+          try {
+            const seats = JSON.parse(xhr.responseText).data?.seats ?? [];
+            const c = {};
+            for (const s of seats) c[`${s.type}:${s.status}`] = (c[`${s.type}:${s.status}`] ?? 0) + 1;
+            resolve({ status: 200, seats: seats.length, breakdown: c });
+          } catch (e) {
+            resolve({ status: xhr.status, error: String(e) });
+          }
+        };
+        xhr.send();
+      }),
     { id, auth, sid },
   );
   console.log(`showtime ${id}:`, JSON.stringify(r), `(${Date.now() - t1}ms)`);
